@@ -7,6 +7,7 @@
  * 
  * 
  * VERSION 09.07.15:1 -- initial version by M.Overdick / J.Canfield / A.G.Klein
+ * VERSION 10.09.15:1 -- version by M.Overdick / J.Canfield / A.G.Klein
  * 
  **********************************************************************/
  
@@ -14,17 +15,10 @@
 
 #define DEBUG       0       // Debug (binary) if 1, debug code compiled
 
-#define VERBOSE     0       // Verbose debug (binary) if 1, debug
-                            // functions will be verbose
-
-#define WRITESINC   0       // Write Sinc (binary) if 1, template sinc pulse
-                            // is written to file "./sinc.dat"
+#define WRITESIZE   2000    // Size of rx buffer to write in samples
+                            // OR n seconds x100
                             
-#define XCORRSIZE   2000
-                            
-#define WRITEXCORR  0
-
-#define WRITERX     1
+#define WRITERX     1       // Enable writing RX buffer to file
 
 // tweakable parameters
 #define SAMPRATE 100e3         // sampling rate (Hz)
@@ -80,7 +74,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
             // Only compiled when debugging
     #if ((DEBUG != 0) && (WRITERX != 0))
-        std::vector<CINT16> rx_write(SPB*XCORRSIZE);  // 1s Xcorr variable
+        std::vector<CINT16> rx_write(SPB*WRITESIZE);  // 1s Xcorr variable
     #else
     #endif /* #if ((DEBUG != 0) && (WRITEXRX != 0)) */
     
@@ -176,7 +170,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // grab initial block of received samples from USRP with nice long timeout (gets discarded)
     num_rx_samps = rx_stream->recv(rxbuffs[0], SPB, md_rx, 3.0); 
-    std::cout << "test" << std::endl;
 
     while(not stop_signal_called){
         
@@ -276,9 +269,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }else{}
 
         #if ((DEBUG != 0) && (WRITERX != 0))
-            if(q >= XCORRSIZE){
+            if(q >= WRITESIZE){
                 std::cout << "Writing rx buffer to file..." << std::flush;
-                writebuff_CINT16("./rx.dat", &rx_write.front(), SPB*XCORRSIZE);
+                writebuff_CINT16("./rx.dat", &rx_write.front(), SPB*WRITESIZE);
                 std::cout << "done!" << std::endl;
                 break;
             }else{}
