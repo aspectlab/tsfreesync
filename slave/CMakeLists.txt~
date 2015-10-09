@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 2.8)
+
+set(BOOST_REQUIRED_COMPONENTS
+    system
+    thread
+)
+find_package(Boost "1.46" REQUIRED ${BOOST_REQUIRED_COMPONENTS})
+find_package(UHD "3.8.0" REQUIRED)
+
+include_directories(
+    ${Boost_INCLUDE_DIRS}
+    ${UHD_INCLUDE_DIRS}
+)
+link_directories(${Boost_LIBRARY_DIRS})
+
+add_executable(xcorrtest xcorrtest.cpp)
+
+SET(CMAKE_BUILD_TYPE "Release")
+
+#SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -c -Wa,-alh")
+#SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --vectorize --cpu Cortex-A9 -O3 -Otime")
+
+target_link_libraries(xcorrtest ${UHD_LIBRARIES} ${Boost_LIBRARIES})
+
+
