@@ -21,13 +21,13 @@ include_directories(
 
 link_directories(${Boost_LIBRARY_DIRS})
 
-add_executable(master master.cpp)
+add_executable(masternode masternode.cpp)
 
 SET(CMAKE_BUILD_TYPE "Release")
 
 #SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -c -Wa,-alh")
 #SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --vectorize --cpu Cortex-A9 -O3 -Otime")
 
-target_link_libraries(master ${UHD_LIBRARIES} ${Boost_LIBRARIES})
+target_link_libraries(masternode ${UHD_LIBRARIES} ${Boost_LIBRARIES})
 
 

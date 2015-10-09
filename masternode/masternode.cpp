@@ -1,5 +1,5 @@
 /***********************************************************************
- * master.cpp          
+ * masternode.cpp          
  * 
  * This source file implements the "master" node in the timestamp free
  * protocol. It uses a rudimentary energy detector to detect the 

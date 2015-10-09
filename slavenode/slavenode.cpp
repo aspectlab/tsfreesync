@@ -1,5 +1,5 @@
 /***********************************************************************
- * slave.cpp          
+ * slavenode.cpp          
  * 
  * This source file implements the "slave" node in the timestamp free
  * protocol. This can synchronize with the master within one sample of 
