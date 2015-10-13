@@ -7,10 +7,5 @@
 
 # Ignore Build Directory #
 ##########################
-/*/build
-/*/build/
-/*/build/*
-/*/build/*.txt
-/*/build/*.sh
-/*/build/*.cmake
+/build
 
