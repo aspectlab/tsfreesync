@@ -13,33 +13,33 @@
  
 #include "includes.hpp"
 
-#define DEBUG       0       // Debug (binary) if 1, debug code compiled
+#define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define WRITESIZE   2000    // Size of rx buffer to write in samples
-                            // OR n seconds x100
+#define WRITESIZE       2000        // Size of rx buffer to write in samples
+                                    // OR n seconds x100
                             
-#define WRITERX     1       // Enable writing RX buffer to file
+#define WRITERX         1           // Enable writing RX buffer to file
 
-// tweakable parameters
-#define SAMPRATE 100e3         // sampling rate (Hz)
-#define CARRIERFREQ 100.0e6  // carrier frequency (Hz)
-#define CLOCKRATE 30.0e6     // clock rate (Hz) 
-#define TXGAIN 40.0          // Tx frontend gain in dB
-#define RXGAIN 0.0           // Rx frontend gain in dB
+    // tweakable parameters
+#define SAMPRATE        100e3       // sampling rate (Hz)
+#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
+#define CLOCKRATE       30.0e6      // clock rate (Hz) 
+#define TXGAIN          40.0        // Tx frontend gain in dB
+#define RXGAIN          0.0         // Rx frontend gain in dB
 
-#define SPB 1000             // samples per buffer
-#define NUMRXBUFFS 3         // number of receive buffers (circular)
-#define TXDELAY 3            // buffers in the future that we schedule transmissions (must be odd)
-#define BW (1.0/50)          // normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define OFFSET (1.0/5)       // normalized freq offset of sinc pulse (1 --> Nyquist)
-#define PULSE_LENGTH 8       // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
-#define PERIOD 500           // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
-// Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
-//           + PULSE_LENGTH/BW is an integer
-//           + 2*PULSE_LENGTH/BW <= SPB
+#define SPB             1000        // samples per buffer
+#define NUMRXBUFFS      3           // number of receive buffers (circular)
+#define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
+#define BW              (1.0/50)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
+#define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
+#define PERIOD          500         // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+    // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
+    //           + PULSE_LENGTH/BW is an integer
+    //           + 2*PULSE_LENGTH/BW <= SPB
 
-#define DETECTION_THRESHOLD 1600 // minimum signal squared magnitude that indicates presence of sinc pulse
-#define FLIP_SCALING 300    // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       1600        // minimum signal squared magnitude that indicates presence of sinc pulse
+#define FLIP_SCALING    300         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
@@ -60,14 +60,14 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
     /** Constant Decalartions *****************************************/
         // pre-compute the sinc waveform, and fill buffer
-    const sinc_table_class sinc_table(2048, BW, OFFSET, PULSE_LENGTH, SPB);
+    const sinc_table_class sinc_table(2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     
     /** Variable Declarations *****************************************/
         // create sinc, zero, and receive buffers
     std::vector< CINT16 >   sinc(SPB);                  // stores precomputed sinc pulse for Tx
     std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
-    std::vector< CINT16 >   flipbuff(3*SPB);   // stores flipped received signals for Tx
-    std::vector< CINT16 *>  flipbuffs(3);      // stores flipped received signals for Tx
+    std::vector< CINT16 >   flipbuff(3*SPB);            // stores flipped received signals for Tx
+    std::vector< CINT16 *>  flipbuffs(3);               // stores flipped received signals for Tx
     std::vector< CINT16 *>  txbuffs(2);                 // pointer to facilitate 2-chan transmission
     std::vector< CINT16 >   rxbuff(NUMRXBUFFS*SPB);     // (circular) receive buffer, keeps most recent 3 buffers
     std::vector< CINT16 *>  rxbuffs(NUMRXBUFFS);        // Vector of pointers to sectons of rx_buff
@@ -199,7 +199,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             case SEARCHING: // state 0 -- transmit zeroes, and search for pulse. if found, flip and save first (of 3) segments
                 txbuffs[0] = &zero.front(); 
                 for (i = 0; i < SPB; i++){ // rudimentary pulse detector
-                    if (std::norm(rxbuffs[rxbuff_ctr][i]) > DETECTION_THRESHOLD) {    
+                    if (std::norm(rxbuffs[rxbuff_ctr][i]) > THRESHOLD) {    
                         std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
                    
                         if(rxbuff_ctr - 1 == -1){
@@ -209,8 +209,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                         }
                         
                         for (j = 0; j < SPB; j++) {
-                             flipbuffs[2][j].real() = rxbuffs[idx][SPB-1-j].real() * FLIP_SCALING;
-                             flipbuffs[2][j].imag() = rxbuffs[idx][SPB-1-j].imag() * FLIP_SCALING;
+                             flipbuffs[2][j] = rxbuffs[idx][SPB-1-j] * CINT16(FLIP_SCALING, 0);
                              
                         }
                         state = FLIP3;
@@ -220,8 +219,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 break;
             case FLIP3: // state 1 -- flip third segment, and transmit
                 for (j = 0; j < SPB; j++) {
-                    flipbuffs[0][j].real() = rxbuffs[rxbuff_ctr][SPB-1-j].real() * FLIP_SCALING;
-                    flipbuffs[0][j].imag() = rxbuffs[rxbuff_ctr][SPB-1-j].imag() * FLIP_SCALING;
+                    flipbuffs[0][j] = rxbuffs[rxbuff_ctr][SPB-1-j] * CINT16(FLIP_SCALING, 0);
                 }
                 txbuffs[0] = flipbuffs[0];
                 state = FLIP2;
@@ -235,8 +233,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 }
                 
                 for (j = 0; j < SPB; j++){
-                    flipbuffs[1][j].real() = rxbuffs[idx][SPB-1-j].real() * FLIP_SCALING;
-                    flipbuffs[1][j].imag() = rxbuffs[idx][SPB-1-j].imag() * FLIP_SCALING;
+                    flipbuffs[1][j] = rxbuffs[idx][SPB-1-j] * CINT16(FLIP_SCALING, 0);
                     
                 }
                 txbuffs[0] = flipbuffs[1];

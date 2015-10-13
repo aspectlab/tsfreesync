@@ -16,7 +16,7 @@ find_package(UHD "3.8.0" REQUIRED)
 include_directories(
     ${Boost_INCLUDE_DIRS}
     ${UHD_INCLUDE_DIRS}
-    ./include/
+    ../include/
 )
 
 link_directories(${Boost_LIBRARY_DIRS})

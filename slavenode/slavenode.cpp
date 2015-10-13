@@ -8,44 +8,47 @@
  *  
  * VERSION 09.16.15:1 -- initial version by A.G.Klein / M.Overdick
  * VERSION 10.09.15:1 -- version by A.G.Klein / M.Overdick / J.E.Canfield
+ * VERSION 10.13.15:1 -- M.Overdick added code for calculating fine
+ *                       delay estimate, fine delay is not corrected. 
+ *                       Also cleaned up code some.
  * 
  **********************************************************************/
 
 #include "includes.hpp"
 
     // Compliation parameters
-#define DEBUG       0       // Debug (binary) if 1, debug code compiled
+#define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define WRITESINC   0       // Write Sinc (binary) if 1, template sinc pulse
-                            // is written to file "./sinc.dat"
+#define WRITESINC       0           // Write Sinc (binary) if 1, template sinc pulse
+                                    // is written to file "./sinc.dat"
                             
-#define WRITESIZE   500     // Length of time to record cross correlation
-                            // OR receive buffer in seconds x100
+#define WRITESIZE       500         // Length of time to record cross correlation
+                                    // OR receive buffer in seconds x100
                             
-#define WRITEXCORR  1       // Write cross correlation to file (binary)
+#define WRITEXCORR      0           // Write cross correlation to file (binary)
 
-#define WRITERX     1       // Write receive buffer to file (binary)
+#define WRITERX         0           // Write receive buffer to file (binary)
                             
-#define RECVEOE     0       // Exit on error for receiver function
-                            // (binary) If rx_streamer->recv() returns 
-                            // an error and this is set, the error will
-                            // be printed on the terminal and the code
-                            // will exit.
+#define RECVEOE         0           // Exit on error for receiver function
+                                    // (binary) If rx_streamer->recv() returns 
+                                    // an error and this is set, the error will
+                                    // be printed on the terminal and the code
+                                    // will exit.
                 
     // tweakable parameters
-#define SAMPRATE 100e3          // sampling rate (Hz)
-#define CARRIERFREQ 100.0e6     // carrier frequency (Hz)
-#define CLOCKRATE 30.0e6        // clock rate (Hz) 
-#define TXGAIN 60.0             // Tx frontend gain in dB
-#define RXGAIN 0.0              // Rx frontend gain in dB
+#define SAMPRATE        100e3       // sampling rate (Hz)
+#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
+#define CLOCKRATE       30.0e6      // clock rate (Hz) 
+#define TXGAIN          60.0        // Tx frontend gain in dB
+#define RXGAIN          0.0         // Rx frontend gain in dB
 
-#define SPB 1000                // samples per buffer
-#define NUMRXBUFFS 3            // number of receive buffers (circular)
-#define TXDELAY 3               // buffers in the future that we schedule transmissions (must be odd)
-#define BW (1.0/50)             // normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define CBW (1.0/5)             // normalized freq offset of sinc pulse (1 --> Nyquist)
-#define PULSE_LENGTH 8          // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
-#define PERIOD 20               // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+#define SPB             1000        // samples per buffer
+#define NUMRXBUFFS      3           // number of receive buffers (circular)
+#define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
+#define BW              (1.0/50)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
+#define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
+#define PERIOD          20          // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
@@ -54,6 +57,7 @@
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 
+    // Structure for pulse detections
 typedef struct {
             INT32U val;
             INT32U pos;
@@ -77,10 +81,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     /** Constant Decalartions *****************************************/
         // pre-compute the sinc waveform, and fill buffer
-	const sinc_table_class sinc_table(64, BW, CBW, PULSE_LENGTH, SPB);
+	const sinc_table_class sinc_table(64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+    const FP32 w0 = CBW*std::acos(-1);      // ω₀ for delay estimate
 
     /** Variable Declarations *****************************************/
     
+	sinc_table_class sinc_var(64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     
         // create sinc, zero, and receive buffers
     std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
@@ -90,7 +96,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector< CINT16 >   rxbuff(NUMRXBUFFS*SPB);     // (circular) receive buffer, keeps most recent 3 buffers
     std::vector< CINT16 *>  rxbuffs(NUMRXBUFFS);        // Vector of pointers to sectons of rx_buff
         // Empty rx buffer
-    std::vector< CINT16 >   rxthrowaway(SPB+1);
+    std::vector< CINT16 >   rxthrowaway(SPB);
     
     
         // Holds the number of received samples returned by rx_stream->recv()
@@ -106,8 +112,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
         // Delay estimation variables
     MAXES max, prev_max, truemax;       // Xcorr max structures
-    INT16U k0;                          // k₀ for delay estmate
+    INT16U k0;                          // k₀ for delay estimate
     FP32 theta;                         // θ for delay estimate
+    FP32 tau;                           // τ for delay estimate
     
         // Counters
     INT16U tx_ctr    = 0;               // Counter for transmitting pulses
@@ -146,9 +153,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     for (j = 0; j < SPB; j++){
 		xcorr_sinc[j] = sinc_table(j);          // Copy sinc_table to a vector.
         
-		sinc[j] = sinc_table(j);                // Copy sinc_table to a vector.
-		sinc[j].real() = sinc[j].real()*32;    // Scale sinc table
-		sinc[j].imag() = sinc[j].imag()*32;    // Scale sinc table
+		sinc[j] = sinc_table(j)*CINT16(32,0);   // Copy sinc_table to a vector.
     } 
 
     /** Debug code for writing sinc pulse *****************************/
@@ -159,7 +164,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         std::cout << "Writing Sinc to file..." << std::flush;
         writebuff_CINT16("./sinc.dat", &sinc.front(), SPB);
         std::cout << "done!" << std::endl;
-        
+    #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
 
     /** Main code *****************************************************/
@@ -349,8 +354,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Calculate theta
             theta = std::atan(truemax.corr.imag()/truemax.corr.real());
             
+                // Calculate tau hat
+            tau = (theta / w0);
+            
+            sinc_table_class sinc_var(64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+            
                 // Display info on the terminal
-            std::cout << boost::format(" | K₀ %4i | θ %8.4f") % k0 % theta << std::endl << std::endl;
+            std::cout << boost::format(" | K₀ %4i | θ %6.4f | τ %8.6f") % k0 % theta % tau << std::endl << std::endl;
             
             /** Coarse delay compensation **/
                 
