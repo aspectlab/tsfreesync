@@ -1,0 +1,6 @@
+# Ignore Autosaved files #
+##########################
+.gitignore~
+.txt~
+.cpp~
+.hpp~
