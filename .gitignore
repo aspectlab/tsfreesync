@@ -1,7 +1,0 @@
-# Ignore build folder #
-#######################
-masternode/build
-slavenode/build
-
-# other things to ignore #
-.gitignore~
