@@ -30,4 +30,3 @@ SET(CMAKE_BUILD_TYPE "Release")
 
 target_link_libraries(slavenode ${UHD_LIBRARIES} ${Boost_LIBRARIES})
 
-
