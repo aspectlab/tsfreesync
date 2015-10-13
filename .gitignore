@@ -7,4 +7,4 @@
 
 # Ignore Build Directory #
 ##########################
-masternode/build
+/*/build/
