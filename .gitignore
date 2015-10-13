@@ -8,3 +8,5 @@
 # Ignore Build Directory #
 ##########################
 build/
+
+build/*
