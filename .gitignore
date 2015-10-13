@@ -4,3 +4,7 @@
 .txt~
 .cpp~
 .hpp~
+
+# Ignore Build Directory #
+##########################
+build/
