@@ -8,5 +8,6 @@
 # Ignore Build Directory #
 ##########################
 /build
-/build/*
+masternode/ignore/file.txt
+
 
