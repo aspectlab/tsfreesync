@@ -8,7 +8,7 @@
 # Ignore Build Directory #
 ##########################
 /*/build
-/*/build
+/*/build/
 /*/build/*
 /*/build/*.txt
 /*/build/*.sh
