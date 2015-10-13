@@ -53,7 +53,7 @@
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
     
-#define THRESHOLD   1e8         // Threshold of cross correlation
+#define THRESHOLD       1e8         // Threshold of cross correlation
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 
@@ -86,7 +86,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     /** Variable Declarations *****************************************/
     
-	sinc_table_class sinc_var(64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+	sinc_table_class sinc_tx(2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     
         // create sinc, zero, and receive buffers
     std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
@@ -151,9 +151,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
         // Initialize sinc table;
     for (j = 0; j < SPB; j++){
-		xcorr_sinc[j] = sinc_table(j);          // Copy sinc_table to a vector.
-        
-		sinc[j] = sinc_table(j)*CINT16(32,0);   // Copy sinc_table to a vector.
+		xcorr_sinc[j] = sinc_table(j);      // Copy sinc_table to a vector.
+		sinc[j] = sinc_tx(j);               // Copy sinc_table to a vector.
     } 
 
     /** Debug code for writing sinc pulse *****************************/
@@ -352,12 +351,18 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             /** Fine delay estimator **/
             
                 // Calculate theta
-            theta = std::atan(truemax.corr.imag()/truemax.corr.real());
+            theta = std::atan2(truemax.corr.imag(),truemax.corr.real());
             
-                // Calculate tau hat
+                // Calculate tau
             tau = (theta / w0);
             
-            sinc_table_class sinc_var(64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+                // Generate adjusted sinc pulse
+            sinc_table_class sinc_tx(2048, BW, CBW, PULSE_LENGTH, SPB, tau/2);
+            
+                // Copy pulse to buffer
+            for(k = 0; k < SPB; k++){
+                sinc[k] = sinc_tx(k);
+            }
             
                 // Display info on the terminal
             std::cout << boost::format(" | K₀ %4i | θ %6.4f | τ %8.6f") % k0 % theta % tau << std::endl << std::endl;
@@ -391,7 +396,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 
                 // Set up transmit buffers to send sinc pulses (or zeros) on TX/RX-B (chan1)
             if (tx_ctr == PERIOD-1) {
-                //ta = md_tx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
                 txbuffs[0] = &sinc.front();  
                 txbuffs[1] = &sinc.front();  
                 tx_ctr = 0;

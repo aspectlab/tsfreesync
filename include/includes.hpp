@@ -19,6 +19,7 @@
 #include "types.hpp"                        // Master type definition file
 #include <iostream>                         // Input/Output to terminal
 #include <csignal>                          // Signal handlers
+#include <cmath>
 #include <complex>                          // Complex numbers
 #include <vector>                           // Standard vector type
 

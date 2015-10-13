@@ -16,9 +16,7 @@
  * 
  **********************************************************************/
 
-#include <cmath>
-#include <complex>
-#include <vector>
+#include "includes.hp"
 
 #ifndef SINC_HPP
 #define SINC_HPP
