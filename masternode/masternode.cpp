@@ -34,7 +34,7 @@
 #define BW              (1.0/50)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
 #define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
-#define PERIOD          50          // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+#define PERIOD          1           // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB

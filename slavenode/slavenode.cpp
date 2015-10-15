@@ -49,7 +49,7 @@
 #define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
 #define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
 #define PING_PERIOD     20          // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
-#define DEBUG_PERIOD    50          // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+#define DEBUG_PERIOD    1           // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
@@ -96,8 +96,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector< CINT16 *>  txbuffs(2);                 // pointer to facilitate 2-chan transmission
     std::vector< CINT16 >   rxbuff(NUMRXBUFFS*SPB);     // (circular) receive buffer, keeps most recent 3 buffers
     std::vector< CINT16 *>  rxbuffs(NUMRXBUFFS);        // Vector of pointers to sectons of rx_buff
-        // Empty rx buffer
-    std::vector< CINT16 >   rxthrowaway(SPB);
+    std::vector< CINT16 >   rxthrowaway(SPB);           // Empty rx buffer
     
     
         // Holds the number of received samples returned by rx_stream->recv()
@@ -279,7 +278,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Compute abs^2 of xcorr divided by 4
             normxcorr[i] = std::norm(CINT32(xcorr[i].real() >> 2,xcorr[i].imag() >> 2));
             
-            
             /** Save buffers if enabled by defines ********************/
                 // Save normxcorr if enabled by defined variables
             #if ((DEBUG != 0) && (WRITEXCORR != 0))
@@ -351,7 +349,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
             
             /** Fine delay estimator **/
-            
                 // Calculate theta
             theta = std::atan2(truemax.corr.imag(),truemax.corr.real());
             
@@ -426,7 +423,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             md_tx.start_of_burst = false;
             md_tx.has_time_spec = true;
             
-            
             /** Write buffers to file and exit program ****************/
             #if ((DEBUG != 0) && (WRITERX != 0))
                 if(write_ctr >= WRITESIZE){
@@ -457,7 +453,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 write_ctr++;  
             #else
             #endif /* ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0))) */
-             
 
     }   /** while(not stop_signal_called) *****************************/
 
