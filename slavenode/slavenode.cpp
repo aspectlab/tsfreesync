@@ -48,7 +48,8 @@
 #define BW              (1.0/50)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
 #define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
-#define PERIOD          20          // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+#define PING_PERIOD     20          // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
+#define DEBUG_PERIOD    50          // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
@@ -117,7 +118,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32 tau;                           // τ for delay estimate
     
         // Counters
-    INT16U tx_ctr    = 0;               // Counter for transmitting pulses
+    INT16U ping_ctr    = 0;             // Counter for transmitting pulses
+    INT16U debug_ctr    = 0;            // Counter for transmitting pulses
     INT16U xcorr_ctr = NUMRXBUFFS-1;    // Counter for cross correlation
     INT16U rxbuff_ctr;                  // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
@@ -223,7 +225,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // report stuff to user (things which may differ from what was requested)
     std::cout << boost::format("Actual TX Rate: %f Msps...") % (usrp_tx->get_tx_rate()/1e6) << std::endl; 
-    std::cout << boost::format("Actual time between pulses: %f sec...") % (PERIOD*SPB/SAMPRATE) << std::endl << std::endl;
+    std::cout << boost::format("Actual time between pulses: %f sec...") % (PING_PERIOD*SPB/SAMPRATE) << std::endl << std::endl;
     
         // set sigint so user can terminate via Ctrl-C
     std::signal(SIGINT, &sig_int_handler);
@@ -394,13 +396,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Set time spec to be one buffer ahead in time
             md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
                 
-                // Set up transmit buffers to send sinc pulses (or zeros) on TX/RX-B (chan1)
-            if (tx_ctr == PERIOD-1) {
+                // Ping channel TX
+            if (ping_ctr == PING_PERIOD-1) {
                 txbuffs[0] = &sinc.front();  
-                txbuffs[1] = &sinc.front();  
-                tx_ctr = 0;
+                ping_ctr = 0;
                 
-                if(tx_ctr == 0){
+                if(ping_ctr == 0){
                     std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
                 }else{}
                 
@@ -408,8 +409,16 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 
             } else {
                 txbuffs[0] = &zero.front();
+                ping_ctr++;
+            }
+            
+                // Debug Channel TX
+            if (debug_ctr == DEBUG_PERIOD-1) {
+                txbuffs[1] = &sinc.front();  
+                debug_ctr = 0;
+            } else {
                 txbuffs[1] = &zero.front();  
-                tx_ctr++;
+                debug_ctr++;
             }
                 
                 // Transmit both buffers

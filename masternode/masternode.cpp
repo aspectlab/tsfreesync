@@ -24,7 +24,8 @@
 #define SAMPRATE        100e3       // sampling rate (Hz)
 #define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz) 
-#define TXGAIN          40.0        // Tx frontend gain in dB
+#define TXGAIN0         40.0        // Tx frontend gain in dB (Ch 0)
+#define TXGAIN1         60.0        // Tx frontend gain in dB (Ch 1)
 #define RXGAIN          0.0         // Rx frontend gain in dB
 
 #define SPB             1000        // samples per buffer
@@ -33,7 +34,7 @@
 #define BW              (1.0/50)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
 #define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
-#define PERIOD          500         // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+#define PERIOD          50          // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
@@ -110,8 +111,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::tune_request_t tune_request(CARRIERFREQ);                               // validate tune request
     usrp_tx->set_tx_freq(tune_request,0);                                        // set the center frequency of chan0
     usrp_tx->set_tx_freq(tune_request,1);                                        // set the center frequency of chan1
-    usrp_tx->set_tx_gain(TXGAIN,0);                                              // set the rf gain of chan0
-    usrp_tx->set_tx_gain(TXGAIN,1);                                              // set the rf gain of chan1
+    usrp_tx->set_tx_gain(TXGAIN0,0);                                             // set the rf gain of chan0
+    usrp_tx->set_tx_gain(TXGAIN1,1);                                             // set the rf gain of chan1
     usrp_tx->set_tx_antenna("TX/RX",0);                                          // set the antenna of chan0
     usrp_tx->set_tx_antenna("TX/RX",1);                                          // set the antenna of chan1
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));                  // allow for some setup time
