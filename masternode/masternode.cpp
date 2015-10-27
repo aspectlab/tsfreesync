@@ -210,7 +210,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                         }
                         
                         for (j = 0; j < SPB; j++) {
-                             flipbuffs[2][j] = rxbuffs[idx][SPB-1-j] * CINT16(FLIP_SCALING, 0);
+                             flipbuffs[2][j] = std::conj(rxbuffs[idx][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                              
                         }
                         state = FLIP3;
@@ -220,7 +220,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 break;
             case FLIP3: // state 1 -- flip third segment, and transmit
                 for (j = 0; j < SPB; j++) {
-                    flipbuffs[0][j] = rxbuffs[rxbuff_ctr][SPB-1-j] * CINT16(FLIP_SCALING, 0);
+                    flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                 }
                 txbuffs[0] = flipbuffs[0];
                 state = FLIP2;
@@ -234,7 +234,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 }
                 
                 for (j = 0; j < SPB; j++){
-                    flipbuffs[1][j] = rxbuffs[idx][SPB-1-j] * CINT16(FLIP_SCALING, 0);
+                    flipbuffs[1][j] = std::conj(rxbuffs[idx][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                     
                 }
                 txbuffs[0] = flipbuffs[1];

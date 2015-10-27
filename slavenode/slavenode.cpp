@@ -152,8 +152,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
         // Initialize sinc table;
     for (j = 0; j < SPB; j++){
-		xcorr_sinc[j] = sinc_table(j);      // Copy sinc_table to a vector.
-		sinc[j] = sinc_tx(j);               // Copy sinc_table to a vector.
+		xcorr_sinc[j] = std::conj(sinc_table(j));   // Copy sinc_table to a vector.
+		sinc[j] = sinc_tx(j);                       // Copy sinc_table to a vector.
     } 
 
     /** Debug code for writing sinc pulse *****************************/
@@ -364,7 +364,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
             
                 // Display info on the terminal
-            std::cout << boost::format(" | K₀ %4i | θ %6.4f | τ %8.6f") % k0 % theta % tau << std::endl << std::endl;
+            std::cout << boost::format(" | K₀ %4i | θ % 6.4f | τ % 8.6f") % k0 % theta % tau << std::endl << std::endl;
             
             /** Coarse delay compensation **/
                 
@@ -373,7 +373,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             txbuffs[1] = &zero.front();
             
                 // Only shift if necessary
-            if((k0 != 0)||(k0 != 1000)){
+            if((k0 != 0)&&(k0 != 1000)){
                     // Receive k0 worth of samples to synchronize receiver
                 num_rx_samps = rx_stream->recv(&rxthrowaway.front(), k0, md_rx);
                 
