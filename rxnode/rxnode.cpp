@@ -123,12 +123,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // Write buffers to file
     std::cout << "Writing buffers to file..." << std::endl;
     
-    std::cout << "    Channel 0..." << std::flush;
-    writebuff_CINT16("./RX_Ch0.dat", &ch0_out.front(), time*SPB);
+    std::cout << "    Channel 0 (Slave Node)..." << std::flush;
+    writebuff_CINT16("./SlaveNode.dat", &ch0_out.front(), time*SPB);
     std::cout << "done!" << std::endl;
     
-    std::cout << "    Channel 1..." << std::flush;
-    writebuff_CINT16("./RX_Ch1.dat", &ch1_out.front(), time*SPB);
+    std::cout << "    Channel 1 (Master Node)..." << std::flush;
+    writebuff_CINT16("./MasterNode.dat", &ch1_out.front(), time*SPB);
     std::cout << "done!" << std::endl;
 
     
