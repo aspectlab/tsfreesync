@@ -296,11 +296,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 std::cout << "done!" << std::endl;
                 break;
             }else{}
+            
+            q++;
         #else
         #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
-
-
-        q++;
     }
 
         // send a mini EOB packet

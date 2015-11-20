@@ -54,7 +54,7 @@
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
     
-#define THRESHOLD       1e8         // Threshold of cross correlation
+#define THRESHOLD       1e7         // Threshold of cross correlation
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 
@@ -362,18 +362,23 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Display info on the terminal
             std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos << std::flush;
             
-            /** Delay estimator **/
-                // Interpolator goes here
+            /** Delay estimator (Interpolator & Kalman filter)**/
                 // Calculate coefficients
+//            a = (truemax.points[0]/2) - truemax.points[1] + (truemax.points[2]/2);
+//            b = (truemax.points[0]*(-3))/2 + (truemax.points[1]*2) - (truemax.points[2]/2);
+            
             a = (truemax.points[0]/2) - truemax.points[1] + (truemax.points[2]/2);
-            b = (truemax.points[0]*(-3))/2 + (truemax.points[1]*2) - (truemax.points[2]/2);
+            b = (truemax.points[0]/2) + (truemax.points[2]/2);
             
             pkpos = -b/(2*a);
             
             std::cout << boost::format(" | fine %f") % pkpos << std::endl;
             
+            //pkpos = 0;  // Set fine delay to zero for debugging
+            
             /** Delay Adjustment **/
-            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, (truemax.pos+pkpos));
+                // = SPB will change with counter to be implemented
+            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos+SPB)/2));
             
                 // Exit calculating mode
             calculate = false;
