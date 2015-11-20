@@ -17,47 +17,57 @@
  **********************************************************************/
 
 #include "includes.hpp"
+#include <math.h>
 
 #ifndef SINC_HPP
 #define SINC_HPP
 
-    // Counters
-static INT16U   i;
-static FP32     j;
+    // Function Prototype
+void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U pulse_length, INT16U spb, FP32 tau);
 
-
-class sinc_table_class{
-public:
-    sinc_table_class(INT16U ampl, FP32 bw, FP32 cbw, INT16U pulse_length, INT16U spb, FP32 tau):
-        _sinc_table(spb)
-    {
-        FP64   w0 = cbw*std::acos(-1.0);                // w0 controls frequency shift 
-        FP64   eta = bw*std::acos(-1.0);                // eta controls BW of sinc pulse
-        INT16U totwidth = 2*floor(pulse_length/bw);     // technically 2*pulse_length/bw+1, but first and last points
-                                                        //    of pulse will be a zero, and we don't count final zero.
-        INT16U Lpadding = floor((spb-totwidth)/2);      // amount of left padding in buffer (before pulse)
-
-        for (i = 0; i < spb; i++){
-            if(i >= Lpadding+totwidth || i < Lpadding){         // zero padding
-                _sinc_table[i] = CINT16(0.0, 0.0);
-            } else {                                            // centered pulse
-                j = i - Lpadding - floor(pulse_length/bw) + tau;        
-                if (j != 0) {
-                    _sinc_table[i] = CINT16(ampl * std::sin(eta*j) / (eta*j) * std::cos(w0*j), 
-                                            ampl * std::sin(eta*j) / (eta*j) * std::sin(w0*j));
-                } else {  // avoid division by zero 
-                    _sinc_table[i] = CINT16(ampl, 0.0);
-                }   
-            }
-        }
+    // Function Code
+void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U pulse_length, INT16U spb, FP32 tau){
+            // Counters
+    INT16U  i   = 0;
+    FP32    j   = 0;
+    FP64    w0  = cbw*PI;   // w0 controls frequency shift 
+    FP64    eta = bw*PI;    // eta controls BW of sinc pulse
+    
+    FP64  ipart;          // Integer part of tau
+    FP64  fpart;          // Fractional part of tau
+    
+        // Make shift always positive
+    if(tau < 0){
+        tau = spb + tau;
+    }else{}
+    
+    fpart = modf(tau, &ipart);     // Split tau into fractional and integer parts
+    
+        // Compute first part of pulse
+    for (i = ipart; i < spb; i++) {
+        j = (i - ipart) - (spb/2);        
+        if (j+fpart != 0) {
+            table[i] = CINT16(ampl * std::sin(eta*j+fpart) / (eta*j+fpart) * std::cos(w0*j+fpart), 
+                              ampl * std::sin(eta*j+fpart) / (eta*j+fpart) * std::sin(w0*j+fpart));
+        } else {  // avoid division by zero 
+            table[i] = CINT16(ampl, 0.0);
+        }   
     }
-
-    inline CINT16 operator()(const INT16U index) const{
-        return _sinc_table[index];
+    
+        // Wrap pulse arround buffer
+    for (i = 0; i < ipart; i++){
+        j = (i - ipart) + spb - (spb/2);        
+        if (j+fpart != 0) {
+            table[i] = CINT16(ampl * std::sin(eta*j+fpart) / (eta*j+fpart) * std::cos(w0*j+fpart), 
+                              ampl * std::sin(eta*j+fpart) / (eta*j+fpart) * std::sin(w0*j+fpart));
+        } else {  // avoid division by zero 
+            table[i] = CINT16(ampl, 0.0);
+        }   
     }
-private:
-    std::vector< CINT16 > _sinc_table;
-};
+    
+
+}
+
 #else
 #endif
 

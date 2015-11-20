@@ -39,7 +39,7 @@
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
 
-#define THRESHOLD       1600        // minimum signal squared magnitude that indicates presence of sinc pulse
+#define THRESHOLD       1e8        // minimum signal squared magnitude that indicates presence of sinc pulse
 #define FLIP_SCALING    300         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
@@ -60,11 +60,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
     
     /** Constant Decalartions *****************************************/
-        // pre-compute the sinc waveform, and fill buffer
-    const sinc_table_class sinc_table(2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     
     /** Variable Declarations *****************************************/
         // create sinc, zero, and receive buffers
+    std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
     std::vector< CINT16 >   sinc(SPB);                  // stores precomputed sinc pulse for Tx
     std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
     std::vector< CINT16 >   flipbuff(3*SPB);            // stores flipped received signals for Tx
@@ -81,6 +80,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
     INT16U i = 0, j = 0, n = 0, k=0,q=0;
     INT16U count = 0, rxbuff_ctr = 0, idx;
+    CINT32 xcorr = 0;
     STATES state = SEARCHING;
     
     INT16U num_rx_samps;
@@ -96,9 +96,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         flipbuffs[i] = &flipbuff.front() + SPB * i;
     }
     
-    for (n = 0; n < SPB; n++){
-        sinc[n] = sinc_table(n);
-    } 
+    Sinc_Gen(&xcorr_sinc.front(),64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+    for (j = 0; j < SPB; j++){
+        xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
+    }
+    
+    Sinc_Gen(&sinc.front(),2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     
     /** Code **********************************************************/
 
@@ -194,13 +197,33 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             std::string error = str(boost::format("Receiver error: %s") % md_rx.strerror());
             throw std::runtime_error(error);
         }
+        
+        
 
             // 4-state machine determines what to send on antenna TX/RX-A (chan0)... send either zeros, or flipped receive buffers
         switch (state) {
             case SEARCHING: // state 0 -- transmit zeroes, and search for pulse. if found, flip and save first (of 3) segments
                 txbuffs[0] = &zero.front(); 
-                for (i = 0; i < SPB; i++){ // rudimentary pulse detector
-                    if (std::norm(rxbuffs[rxbuff_ctr][i]) > THRESHOLD) {    
+                for (i = 0; i < SPB; i++){
+                    
+                        /** CROSS CORRELATION *****************************************/
+                    xcorr = 0;
+                        // Calculate cross correlation
+                    if (rxbuff_ctr == NUMRXBUFFS-1){        // Correlation for cicular buffer
+                    // Correlate last section of circular buffer
+                        for (j = 0; j < SPB-1-i; j++) {
+                            xcorr += rxbuffs[NUMRXBUFFS-1][i+j+1] * xcorr_sinc[j];
+                        }
+                        for (j = SPB-1-i; j < SPB; j++) {
+                            xcorr += rxbuffs[0][-SPB+i+j+1] * xcorr_sinc[j];
+                        }
+                    }else{  // Correlate buffers 0 to NUMRXBUFFS-2
+                        for (j = 0; j < SPB; j++) {
+                            xcorr += rxbuffs[rxbuff_ctr][i+j+1] * xcorr_sinc[j];
+                        }
+                    }
+                        
+                    if (std::norm(CINT32(xcorr.real() >> 2,xcorr.imag() >> 2)) > THRESHOLD) {    
                         std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
                    
                         if(rxbuff_ctr - 1 == -1){
@@ -215,7 +238,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                         }
                         state = FLIP3;
                         break;
-                    }
+                    } else{}
                 }
                 break;
             case FLIP3: // state 1 -- flip third segment, and transmit

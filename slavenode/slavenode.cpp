@@ -17,9 +17,9 @@
 #include "includes.hpp"
 
     // Compliation parameters
-#define DEBUG           0           // Debug (binary) if 1, debug code compiled
+#define DEBUG           1           // Debug (binary) if 1, debug code compiled
 
-#define WRITESINC       0           // Write Sinc (binary) if 1, template sinc pulse
+#define WRITESINC       1           // Write Sinc (binary) if 1, template sinc pulse
                                     // is written to file "./sinc.dat"
                             
 #define WRITESIZE       500         // Length of time to record cross correlation
@@ -64,6 +64,7 @@ typedef struct {
             INT32U pos;
             CINT32 corr;
             uhd::time_spec_t ts;
+            INT32U points[3];
         } MAXES;
 
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
@@ -82,16 +83,14 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     /** Constant Decalartions *****************************************/
         // pre-compute the sinc waveform, and fill buffer
-	const sinc_table_class sinc_table(64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     const FP32 w0 = CBW*std::acos(-1);      // ω₀ for delay estimate
 
     /** Variable Declarations *****************************************/
     
-	sinc_table_class sinc_tx(2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
-    
         // create sinc, zero, and receive buffers
-    std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
-    std::vector< CINT16 >   sinc(SPB);                  // stores precomputed sinc pulse for Tx
+    std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation  (constant)
+    std::vector< CINT16 >   sinc(SPB);                  // stores precomputed sinc pulse debug clock            (adjusted)
+    std::vector< CINT16 >   sync_sinc(SPB);             // stores precomputed sinc pulse ping to master         (constant)
     std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
     std::vector< CINT16 *>  txbuffs(2);                 // pointer to facilitate 2-chan transmission
     std::vector< CINT16 >   rxbuff(NUMRXBUFFS*SPB);     // (circular) receive buffer, keeps most recent 3 buffers
@@ -107,14 +106,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector<INT32U> normxcorr(SPB);             // Normalized cross correlation
     std::vector<INT32U>::iterator p_normxcorrmax;   // Pointer to max element
     bool threshbroken = false;                      // Threhold detection
-    bool oddnumbuffs  = false;                      // Odd buffer counter
     bool calculate    = false;                      // Calculate delay trigger
     
         // Delay estimation variables
     MAXES max, prev_max, truemax;       // Xcorr max structures
-    INT16U k0;                          // k₀ for delay estimate
-    FP32 theta;                         // θ for delay estimate
-    FP32 tau;                           // τ for delay estimate
+    FP32 a,b;                           // Interpolator coefficients
+    FP32 pkpos;                         // Position of peak
+    
     
         // Counters
     INT16U ping_ctr    = 0;             // Counter for transmitting pulses
@@ -150,11 +148,14 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         rxbuffs[i] = &rxbuff.front() + SPB * i;
     }
     
-        // Initialize sinc table;
+    Sinc_Gen(&xcorr_sinc.front(),64, BW, CBW, PULSE_LENGTH, SPB, 0.0);
     for (j = 0; j < SPB; j++){
-		xcorr_sinc[j] = std::conj(sinc_table(j));   // Copy sinc_table to a vector.
-		sinc[j] = sinc_tx(j);                       // Copy sinc_table to a vector.
-    } 
+        xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
+    }
+    
+    Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+    
+    Sinc_Gen(&sync_sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
 
     /** Debug code for writing sinc pulse *****************************/
 
@@ -255,7 +256,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         
             // grab block of received samples from USRP
         num_rx_samps = rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx); 
-        oddnumbuffs = not(oddnumbuffs);
         
         /** CROSS CORRELATION *****************************************/
         for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i
@@ -298,11 +298,36 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
             // Find max value of cross correlation and save its characteristics
         p_normxcorrmax = std::max_element(normxcorr.begin(), normxcorr.end());  // find largest abs^2
-        max.val  = *p_normxcorrmax;                                              // Save the largeset abs^2
-        max.pos  = std::distance(normxcorr.begin(), p_normxcorrmax);             // Save the distance
+        max.val  = *p_normxcorrmax;                                             // Save the largeset abs^2
+        max.pos  = std::distance(normxcorr.begin(), p_normxcorrmax);            // Save the distance
         max.corr = xcorr[max.pos];
-        max.ts   = md_rx.time_spec;                                               // Save the current rx time spec  
+        max.ts   = md_rx.time_spec;                                             // Save the current rx time spec  
+        
+            // Save maximum points for interpolation
+            // When maximum is on a boundary
+        if(max.pos == SPB-1){
+            max.points[0] = normxcorr[max.pos-1];           // Save sample before max
+            max.points[1] = normxcorr[max.pos];             // Save max 
+            max.points[2] = 0;                              // Sample after max comes later
+        }else if(max.pos == 0){
+                // When current maximum exceeds previous maximum
+            if(max.val > prev_max.val){
+                max.points[0] = prev_max.points[1];         // Previous max is now sample before max
+                max.points[1] = normxcorr[max.pos];         // Save max
+                max.points[2] = normxcorr[max.pos+1];       // Save sample after max
                 
+                // When current maximum is lesser than previous
+            }else{
+                prev_max.points[2] = normxcorr[max.pos];    // Save sample after max
+            }
+            
+            // When maximum is not on a boundary
+        }else{
+            max.points[0] = normxcorr[max.pos-1];
+            max.points[1] = normxcorr[max.pos];
+            max.points[2] = normxcorr[max.pos+1];
+        }
+        
             // Trigger calculation block after extra buffer
         if (threshbroken == true){
             calculate = true;
@@ -331,58 +356,25 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }else if(max.val >= prev_max.val){
                 truemax = max;
             }
+            
+            std::cout << boost::format("%i, %i, %i") % truemax.points[0] % truemax.points[1] % truemax.points[2] << std::endl << std::endl;
 
                 // Display info on the terminal
-            std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i | ") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos << std::flush;
+            std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos << std::flush;
             
-            /** Coarse delay estimator **/
+            /** Delay estimator **/
+                // Interpolator goes here
+                // Calculate coefficients
+            a = (truemax.points[0]/2) - truemax.points[1] + (truemax.points[2]/2);
+            b = (truemax.points[0]*(-3))/2 + (truemax.points[1]*2) - (truemax.points[2]/2);
             
-                // Do when number of buffers elapsed is odd...
-            if(oddnumbuffs == true){
-                std::cout << "ODD" << std::flush;
-                k0 = std::ceil(float(truemax.pos)/2) + (SPB/2);
-                
-                // Do when number of buffers elapsed is even....
-            }else{
-                std::cout << "EVE" << std::flush;
-                k0 = std::ceil(float(truemax.pos)/2);
-            }
+            pkpos = -b/(2*a);
             
-            /** Fine delay estimator **/
-                // Calculate theta
-            theta = std::atan2(truemax.corr.imag(),truemax.corr.real());
+            std::cout << boost::format(" | fine %f") % pkpos << std::endl;
             
-                // Calculate tau
-            tau = (theta / w0);
+            /** Delay Adjustment **/
+            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, (truemax.pos+pkpos));
             
-                // Generate adjusted sinc pulse
-            sinc_table_class sinc_tx(2048, BW, CBW, PULSE_LENGTH, SPB, tau/2);
-            
-                // Copy pulse to buffer
-            for(k = 0; k < SPB; k++){
-                sinc[k] = sinc_tx(k);
-            }
-            
-                // Display info on the terminal
-            std::cout << boost::format(" | K₀ %4i | θ % 6.4f | τ % 8.6f") % k0 % theta % tau << std::endl << std::endl;
-            
-            /** Coarse delay compensation **/
-                
-                // Set TX buffers to zero
-            txbuffs[0] = &zero.front();
-            txbuffs[1] = &zero.front();
-            
-                // Only shift if necessary
-            if((k0 != 0)&&(k0 != 1000)){
-                    // Receive k0 worth of samples to synchronize receiver
-                num_rx_samps = rx_stream->recv(&rxthrowaway.front(), k0, md_rx);
-                
-                    // Transmit k0 worth of samples to synchronize transmitter
-                md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*SPB/SAMPRATE);
-                tx_stream->send(txbuffs, num_rx_samps, md_tx);
-                md_tx.start_of_burst = false;
-                md_tx.has_time_spec = true;
-            }else{}
                 // Exit calculating mode
             calculate = false;
         }else{}
@@ -395,14 +387,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 
                 // Ping channel TX
             if (ping_ctr == PING_PERIOD-1) {
-                txbuffs[0] = &sinc.front();  
+                txbuffs[0] = &sync_sinc.front();  
                 ping_ctr = 0;
                 
                 if(ping_ctr == 0){
                     std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
                 }else{}
                 
-                oddnumbuffs = false;
                 
             } else {
                 txbuffs[0] = &zero.front();
