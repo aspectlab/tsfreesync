@@ -61,15 +61,9 @@ void sig_int_handler(int){stop_signal_called = true;}
 int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
     
-    /** Constant Decalartions *****************************************/
-    
     /** Variable Declarations *****************************************/
         // create sinc, zero, and receive buffers
     std::vector< INT32U >   normxcorr(SPB);             // Normalized cross correlation
-    std::vector<INT32U>::iterator p_normxcorrmax;   // Pointer to max element
-    INT32U max;
-    INT32U prev_max;
-    
     std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
     std::vector< CINT16 >   sinc(SPB);                  // stores precomputed sinc pulse for Tx
     std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
@@ -216,62 +210,59 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             std::string error = str(boost::format("Receiver error: %s") % md_rx.strerror());
             throw std::runtime_error(error);
         }
-        
-        
 
             // 4-state machine determines what to send on antenna TX/RX-A (chan0)... send either zeros, or flipped receive buffers
-        
-                txbuffs[0] = &zero.front(); 
-                for (i = 0; i < SPB; i++){
-                    
-                        /** CROSS CORRELATION *****************************************/
-                    xcorr = 0;
-                    
-                    if(rxbuff_ctr == 0){
-                        for(j = 0; j < SPB-1-i; j++){
-                            xcorr += rxbuffs[NUMRXBUFFS-1][i+j+1] * xcorr_sinc[j];
-                        }
-                        for(j = SPB-1-i; j < SPB; j++){
-                            xcorr += rxbuffs[0][-SPB+1+i+j] * xcorr_sinc[j];
-                        }
-                    }else{
-                        for (j = 0; j < SPB; j++) {
-                            xcorr += rxbuffs[rxbuff_ctr-1][i+j+1] * xcorr_sinc[j];
-                        }
-                    }
-                    
-                        // Compute abs^2 of xcorr divided by 4
-                    normxcorr[i] = std::norm(CINT32(xcorr.real() >> 2,xcorr.imag() >> 2));
-                    
-                    /** Save buffers if enabled by defines ********************/
-                        // Save normxcorr if enabled by defined variables
-                    #if ((DEBUG != 0) && (WRITEXCORR != 0))
-                        for(k = 0; k < SPB; k++){
-                            normxcorr_write[(SPB*write_ctr)+k] = normxcorr[k];
-                        }
-                    #else
-                    #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
-                    
-                        // Trigger calculation block after extra buffer
-                    if ((normxcorr[i] >= THRESHOLD)&&(state == SEARCHING)){
-                        std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
-                   
-                        if(rxbuff_ctr - 1 == -1){
-                            idx = NUMRXBUFFS-1;
-                        }else{
-                            idx = rxbuff_ctr - 1;
-                        }
-                        
-                        for (j = 0; j < SPB; j++) {
-                             flipbuffs[2][j] = std::conj(rxbuffs[idx][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
-                             
-                        }
-                        state = FLIP3;
-                    }else{}
-
+        txbuffs[0] = &zero.front(); 
+        for (i = 0; i < SPB; i++){
+            
+                /** CROSS CORRELATION *****************************************/
+            xcorr = 0;  // Initialize xcorr variable
+            
+                // Cross correlation for circular buffer
+            if(rxbuff_ctr == 0){
+                for(j = 0; j < SPB-1-i; j++){
+                    xcorr += rxbuffs[NUMRXBUFFS-1][i+j+1] * xcorr_sinc[j];
+                }
+                for(j = SPB-1-i; j < SPB; j++){
+                    xcorr += rxbuffs[0][-SPB+1+i+j] * xcorr_sinc[j];
+                }
+            }else{
+                for (j = 0; j < SPB; j++) {
+                    xcorr += rxbuffs[rxbuff_ctr-1][i+j+1] * xcorr_sinc[j];
+                }
+            }
+            
+                // Compute abs^2 of xcorr divided by 4
+            normxcorr[i] = std::norm(CINT32(xcorr.real() >> 2,xcorr.imag() >> 2));
+            
+            /** Save buffers if enabled by defines ********************/
+                // Save normxcorr if enabled by defined variables
+            #if ((DEBUG != 0) && (WRITEXCORR != 0))
+                for(k = 0; k < SPB; k++){
+                    normxcorr_write[(SPB*write_ctr)+k] = normxcorr[k];
+                }
+            #else
+            #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+            
+                // Trigger calculation block after extra buffer
+            if ((normxcorr[i] >= THRESHOLD)&&(state == SEARCHING)){
+                std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
+           
+                if(rxbuff_ctr - 1 == -1){
+                    idx = NUMRXBUFFS-1;
+                }else{
+                    idx = rxbuff_ctr - 1;
                 }
                 
-            switch (state) {    
+                for (j = 0; j < SPB; j++) {
+                     flipbuffs[2][j] = std::conj(rxbuffs[idx][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
+                     
+                }
+                state = FLIP3;
+            }else{}
+        }
+                
+        switch (state) {    
             case FLIP3: // state 1 -- flip third segment, and transmit
                 for (j = 0; j < SPB; j++) {
                     flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
@@ -300,8 +291,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 break;
         }
         
-        
-
             // set up transmit buffers to send sinc pulses (or zeros) on TX/RX-B (chan1)
         if (count == PERIOD-1) {
             txbuffs[1] = &sinc.front();  

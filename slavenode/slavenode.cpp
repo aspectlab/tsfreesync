@@ -117,8 +117,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // Counters
     INT16U ping_ctr    = 0;             // Counter for transmitting pulses
     INT16U debug_ctr    = 0;            // Counter for transmitting pulses
-    INT16U xcorr_ctr = NUMRXBUFFS-1;    // Counter for cross correlation
-    INT16U rxbuff_ctr;                  // Counter for circular rx buffer
+    INT16U rxbuff_ctr = 0;                  // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
     
     
@@ -247,31 +246,23 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Remember current max values
         prev_max = max;
         
-            // Cross correlation lags RX by one buffer
-        if(xcorr_ctr == NUMRXBUFFS-1){
-            rxbuff_ctr = 0;
-        }else{
-            rxbuff_ctr = xcorr_ctr + 1;
-        }
-        
             // grab block of received samples from USRP
         num_rx_samps = rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx); 
         
         /** CROSS CORRELATION *****************************************/
         for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i
             xcorr[i] = 0;
-                // Calculate cross correlation
-            if (xcorr_ctr == NUMRXBUFFS-1){        // Correlation for cicular buffer
-                    // Correlate last section of circular buffer
-                for (j = 0; j < SPB-1-i; j++) {
+                // Cross correlation for circular buffer
+            if(rxbuff_ctr == 0){
+                for(j = 0; j < SPB-1-i; j++){
                     xcorr[i] += rxbuffs[NUMRXBUFFS-1][i+j+1] * xcorr_sinc[j];
                 }
-                for (j = SPB-1-i; j < SPB; j++) {
-                    xcorr[i] += rxbuffs[0][-SPB+i+j+1] * xcorr_sinc[j];
+                for(j = SPB-1-i; j < SPB; j++){
+                    xcorr[i] += rxbuffs[0][-SPB+1+i+j] * xcorr_sinc[j];
                 }
-            }else{  // Correlate buffers 0 to NUMRXBUFFS-2
+            }else{
                 for (j = 0; j < SPB; j++) {
-                    xcorr[i] += rxbuffs[xcorr_ctr][i+j+1] * xcorr_sinc[j];
+                    xcorr[i] += rxbuffs[rxbuff_ctr-1][i+j+1] * xcorr_sinc[j];
                 }
             }
                 
@@ -290,7 +281,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Save rx if enabled by defined variables
             #if ((DEBUG != 0) && (WRITERX != 0))
                 for(k = 0; k < SPB; k++){
-                    rx_write[(SPB*write_ctr)+k] = rxbuffs[xcorr_ctr][k];
+                    rx_write[(SPB*write_ctr)+k] = rxbuffs[rxbuff_ctr][k];
                 }
             #else
             #endif /* #if ((DEBUG != 0) && (WRITERX != 0)) */
@@ -338,10 +329,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             threshbroken = true;
         }else{}
         
-            // Increment xcorr buffer counter
-        xcorr_ctr++;
-        if (xcorr_ctr >= NUMRXBUFFS) {
-            xcorr_ctr = 0;
+            // Increment rx buffer counter
+        rxbuff_ctr++;
+        if (rxbuff_ctr >= NUMRXBUFFS) {
+            rxbuff_ctr = 0;
         }else{}
         
         
@@ -363,10 +354,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos << std::flush;
             
             /** Delay estimator (Interpolator & Kalman filter)**/
-                // Calculate coefficients
-//            a = (truemax.points[0]/2) - truemax.points[1] + (truemax.points[2]/2);
-//            b = (truemax.points[0]*(-3))/2 + (truemax.points[1]*2) - (truemax.points[2]/2);
             
+                // Calculate coefficients
             a = (truemax.points[0]/2) - truemax.points[1] + (truemax.points[2]/2);
             b = (truemax.points[0]/2) + (truemax.points[2]/2);
             
@@ -377,8 +366,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             //pkpos = 0;  // Set fine delay to zero for debugging
             
             /** Delay Adjustment **/
-                // = SPB will change with counter to be implemented
-            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos+SPB)/2));
+                // SPB will change with counter to be implemented
+            //Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos+SPB)/2));
+            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+(1+pkpos))/2));
             
                 // Exit calculating mode
             calculate = false;
