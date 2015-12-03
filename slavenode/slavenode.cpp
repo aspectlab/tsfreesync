@@ -357,7 +357,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             
                 // Calculate coefficients
             a = (truemax.points[0]/2) - truemax.points[1] + (truemax.points[2]/2);
-            b = (truemax.points[0]/2) + (truemax.points[2]/2);
+            b = (truemax.points[0]/2) - (truemax.points[2]/2);
             
             pkpos = -b/(2*a);
             

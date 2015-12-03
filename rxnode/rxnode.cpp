@@ -50,9 +50,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT16U num_rx_samps;
 
         // Counters
-    INT16U i,j,k;                       // Generic counters
-    INT32U rx_ctr;                      // Counts loops through main while()
-    
+    INT16U i = 0,j = 0,k = 0;               // Generic counters
+    INT32U rx_ctr = 0;                      // Counts loops through main while()
     
     /** Variable Initializations **************************************/
     rxbuffs[0] = &ch0_rxbuff.front();
@@ -90,6 +89,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
         // set sigint so user can terminate via Ctrl-C
     std::signal(SIGINT, &sig_int_handler);
+    std::cout << boost::format("Recording RX CH 0 and CH 1 for %i seconds") % DURATION << std::endl;
     std::cout << "Press Ctrl + C to stop streaming..." << std::endl; 
 
         // setup receive streaming
@@ -100,6 +100,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // grab initial block of received samples from USRP with nice long timeout (gets discarded)
     num_rx_samps = rx_stream->recv(rxbuffs, SPB, md_rx, 3.0);
+
+    std::cout << std::endl;
 
     while(not stop_signal_called){
             // grab block of received samples from USRP
@@ -118,16 +120,22 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             break;
         }else{}
         
+            // Report progress to terminal
+        std::cout << boost::format("\r\t%2i Percent Complete") % (rx_ctr*100/time) << std::flush;
+        
     }   /** while(not stop_signal_called) *****************************/
+
+        // Report progress to terminal
+    std::cout << "\r\tdone!               " << std::endl << std::endl;
 
         // Write buffers to file
     std::cout << "Writing buffers to file..." << std::endl;
     
-    std::cout << "    Channel 0 (Slave Node)..." << std::flush;
+    std::cout << "    Channel 0 (SlaveNode.dat)..." << std::flush;
     writebuff_CINT16("./SlaveNode.dat", &ch0_out.front(), time*SPB);
     std::cout << "done!" << std::endl;
     
-    std::cout << "    Channel 1 (Master Node)..." << std::flush;
+    std::cout << "    Channel 1 (MasterNode.dat)..." << std::flush;
     writebuff_CINT16("./MasterNode.dat", &ch1_out.front(), time*SPB);
     std::cout << "done!" << std::endl;
 
