@@ -15,7 +15,7 @@
 
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define WRITESIZE       200         // Size of rx buffer to write in samples
+#define WRITESIZE       2000        // Size of rx buffer to write in samples
                                     // OR n seconds x100
                             
 #define WRITERX         0           // Enable writing RX buffer to file
@@ -92,11 +92,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     #endif /* #if ((DEBUG != 0) && (WRITEXRX != 0)) */
     
     INT16U i = 0, j = 0, n = 0, k=0,q=0;
-    INT16U count = 0, rxbuff_ctr = 0, idx;
+    INT16U count = 0, rxbuff_ctr = 0, idx = 0;
     CINT32 xcorr = 0;
     STATES state = SEARCHING;
     
-    INT16U num_rx_samps;
+    INT16U num_rx_samps = 0;
     
     /** Variable Initializations **************************************/
         // Initialise rxbuffs (Vector of pointers)

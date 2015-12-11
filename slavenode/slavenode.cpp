@@ -45,9 +45,9 @@
 #define SPB             1000        // samples per buffer
 #define NUMRXBUFFS      3           // number of receive buffers (circular)
 #define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
-#define BW              (1.0/50)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define CBW             (1.0/5)     // normalized freq offset of sinc pulse (1 --> Nyquist)
-#define PULSE_LENGTH    8           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
+#define BW              (0.75)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             (1.0)     // normalized freq offset of sinc pulse (1 --> Nyquist)
+#define PULSE_LENGTH    250           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
 #define PING_PERIOD     20          // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
 #define DEBUG_PERIOD    1           // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
@@ -82,8 +82,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
 
     /** Constant Decalartions *****************************************/
-        // pre-compute the sinc waveform, and fill buffer
-    const FP32 w0 = CBW*std::acos(-1);      // ω₀ for delay estimate
 
     /** Variable Declarations *****************************************/
     
@@ -117,8 +115,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // Counters
     INT16U ping_ctr    = 0;             // Counter for transmitting pulses
     INT16U debug_ctr    = 0;            // Counter for transmitting pulses
-    INT16U rxbuff_ctr = 0;                  // Counter for circular rx buffer
+    INT16U rxbuff_ctr = 0;              // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
+    INT32  timer = 0;                   // Timer for time between transmitting and receiving a pulse
     
     
     /** Debugging vars ************************************************/
@@ -344,6 +343,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // the sinc and calculate its time
             if(prev_max.val > max.val){  // previous buffer had largest peak
                 truemax = prev_max;
+                timer--;                // Decriment timer to correct it
+                
             }else if(max.val >= prev_max.val){
                 truemax = max;
             }
@@ -351,7 +352,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             std::cout << boost::format("%i, %i, %i") % truemax.points[0] % truemax.points[1] % truemax.points[2] << std::endl << std::endl;
 
                 // Display info on the terminal
-            std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos << std::flush;
+            std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i | Timer %4i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos % timer << std::flush;
             
             /** Delay estimator (Interpolator & Kalman filter)**/
             
@@ -368,7 +369,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             /** Delay Adjustment **/
                 // SPB will change with counter to be implemented
             //Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos+SPB)/2));
-            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+(1+pkpos))/2));
+            Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos)/2));
             
                 // Exit calculating mode
             calculate = false;
@@ -379,6 +380,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
          **************************************************************/
                 // Set time spec to be one buffer ahead in time
             md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
+        
+            timer++;
                 
                 // Ping channel TX
             if (ping_ctr == PING_PERIOD-1) {
@@ -389,6 +392,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                     std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
                 }else{}
                 
+                timer = -TXDELAY;
                 
             } else {
                 txbuffs[0] = &zero.front();

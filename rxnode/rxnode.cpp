@@ -10,11 +10,11 @@
 #include "includes.hpp"
 
     // tweakable parameters
-#define DURATION        5           // Length of time to record in seconds
+#define DURATION        1           // Length of time to record in seconds
 #define SAMPRATE        100e3       // sampling rate (Hz)
 #define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz) 
-#define RXGAIN          0.0         // Rx frontend gain in dB
+#define RXGAIN          30.0         // Rx frontend gain in dB
 #define SPB             1000        // samples per buffer
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
