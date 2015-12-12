@@ -75,7 +75,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     /** Variable Initializations **************************************/
 
     Sinc_Gen(&sinc0.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
-    Sinc_Gen(&sinc1.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, 0.0);
+    Sinc_Gen(&sinc1.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, 0.5);
     
     /** Debug code for writing sinc pulse *****************************/
 

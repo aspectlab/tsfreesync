@@ -42,12 +42,16 @@
 #define TXGAIN          60.0        // Tx frontend gain in dB
 #define RXGAIN          0.0         // Rx frontend gain in dB
 
+    // Kalman Filter
+#define KALGAIN1        1           // Kalman Gain for master clock estimate
+#define KALGAIN2        1           // Kalman Gain for master clock estimate
+
 #define SPB             1000        // samples per buffer
 #define NUMRXBUFFS      3           // number of receive buffers (circular)
 #define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
-#define BW              (0.75)    // normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define CBW             (1.0)     // normalized freq offset of sinc pulse (1 --> Nyquist)
-#define PULSE_LENGTH    250           // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
+#define BW              (0.75)      // normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             (1.0)       // normalized freq offset of sinc pulse (1 --> Nyquist)
+#define PULSE_LENGTH    250         // sinc pulse duration (in half number of lobes... in actual time units, will be 2*PULSE_LENGTH/BW)
 #define PING_PERIOD     20          // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
 #define DEBUG_PERIOD    1           // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
@@ -95,7 +99,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector< CINT16 *>  rxbuffs(NUMRXBUFFS);        // Vector of pointers to sectons of rx_buff
     std::vector< CINT16 >   rxthrowaway(SPB);           // Empty rx buffer
     
-    
         // Holds the number of received samples returned by rx_stream->recv()
     INT16U num_rx_samps;
 
@@ -111,13 +114,20 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32 a,b;                           // Interpolator coefficients
     FP32 pkpos;                         // Position of peak
     
+        // Kalmann filter variables
+    FP32 crnt_master    = 0.0;          // Current time of master
+    FP32 time_est       = 0.0;          // Time estimate of master
+    FP32 time_pred      = 0.0;          // Time prediction of master
+    FP32 rate_est       = 1.0;          // Rate estimate of master
+    FP32 rate_pred      = 1.0;          // Rate prediction of master
+    FP32 pred_error     = 0.0;          // Prediction error
     
         // Counters
-    INT16U ping_ctr    = 0;             // Counter for transmitting pulses
+    INT16U ping_ctr     = 0;            // Counter for transmitting pulses
     INT16U debug_ctr    = 0;            // Counter for transmitting pulses
-    INT16U rxbuff_ctr = 0;              // Counter for circular rx buffer
+    INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
-    INT32  timer = 0;                   // Timer for time between transmitting and receiving a pulse
+    INT32  timer        = 0;            // Timer for time between transmitting and receiving a pulse
     
     
     /** Debugging vars ************************************************/
@@ -343,7 +353,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // the sinc and calculate its time
             if(prev_max.val > max.val){  // previous buffer had largest peak
                 truemax = prev_max;
-                timer--;                // Decriment timer to correct it
+                timer -= SPB;            // Decriment timer to correct it
                 
             }else if(max.val >= prev_max.val){
                 truemax = max;
@@ -366,6 +376,19 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             
             //pkpos = 0;  // Set fine delay to zero for debugging
             
+                // Kalman Filter
+            crnt_master = (timer - (truemax.pos+pkpos)*0.5) * rate_est;
+            pred_error  = crnt_master - time_pred;
+            
+                // Update Estimates
+            time_est  = time_pred + KALGAIN1 * pred_error;
+            rate_est  = rate_pred + KALGAIN2 * pred_error;
+            
+                // Update Predictions
+            time_pred = time_est + rate_est;
+            rate_pred = rate_est;
+            
+            
             /** Delay Adjustment **/
                 // SPB will change with counter to be implemented
             //Sinc_Gen(&sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos+SPB)/2));
@@ -373,7 +396,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             
                 // Exit calculating mode
             calculate = false;
-        }else{}
+        }else{
+            time_est  = time_pred;
+            rate_est  = rate_pred;
+            time_pred = time_est + rate_est;
+        }
         
         /***************************************************************
          * TRANSMITTING block - Transmits debug signal and "ping"
@@ -381,7 +408,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Set time spec to be one buffer ahead in time
             md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
         
-            timer++;
+            timer += SPB;
                 
                 // Ping channel TX
             if (ping_ctr == PING_PERIOD-1) {
@@ -392,7 +419,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                     std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
                 }else{}
                 
-                timer = -TXDELAY;
+                timer = -TXDELAY*SPB;
                 
             } else {
                 txbuffs[0] = &zero.front();
