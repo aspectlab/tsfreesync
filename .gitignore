@@ -2,6 +2,8 @@
 ##########################
 .gitignore~
 *.txt~
+.atom-build.json
+.atom-build.json~
 
 # Ignore Build Directory #
 ##########################

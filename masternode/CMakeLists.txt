@@ -19,7 +19,9 @@ include_directories(
     ../include/
 )
 
-link_directories(${Boost_LIBRARY_DIRS})
+link_directories(
+    ${Boost_LIBRARY_DIRS}
+)
 
 add_executable(masternode masternode.cpp)
 

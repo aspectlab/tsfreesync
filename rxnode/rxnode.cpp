@@ -11,10 +11,10 @@
 
     // tweakable parameters
 #define DURATION        1           // Length of time to record in seconds
-#define SAMPRATE        100e3       // sampling rate (Hz)
-#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
+#define SAMPRATE        5e6         // sampling rate (Hz)
+#define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz) 
-#define RXGAIN          30.0         // Rx frontend gain in dB
+#define RXGAIN          16.0        // Rx frontend gain in dB
 #define SPB             1000        // samples per buffer
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
@@ -38,13 +38,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     
     /** Variable Declarations *****************************************/
     
-    std::vector< CINT16 >   ch0_rxbuff(SPB);        // receive buffer (Ch 0)
-    std::vector< CINT16 >   ch1_rxbuff(SPB);        // receive buffer (Ch 1)
+    // (circular) receive buffers
+    std::vector< CINT16 >   ch0_rxbuff(time*SPB);   // Ch 0 is RX2-A
+    std::vector< CINT16 >   ch1_rxbuff(time*SPB);   // Ch 1 is RX2-B
     
-    std::vector< CINT16 >   ch0_out(time*SPB);  // Output buffer (Ch 0)
-    std::vector< CINT16 >   ch1_out(time*SPB);  // Output buffer (Ch 1)
-    
-    std::vector< CINT16 *>  rxbuffs(2);             // Vector of pointers to rxbuffs
+    // Vector of pointers to sectons of rx_buff
+    std::vector< std::vector< CINT16 *> >   rxbuffs(time*2, std::vector< CINT16 *>(2));     
     
         // Holds the number of received samples returned by rx_stream->recv()
     INT16U num_rx_samps;
@@ -54,9 +53,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT32U rx_ctr = 0;                      // Counts loops through main while()
     
     /** Variable Initializations **************************************/
-    rxbuffs[0] = &ch0_rxbuff.front();
-    rxbuffs[1] = &ch1_rxbuff.front();
-    
+    // Initialise rxbuffs (Vector of pointers)
+    for(i = 0; i < time; i++){
+        rxbuffs[i][0] = &ch0_rxbuff.front() + SPB * i;
+        rxbuffs[i][1] = &ch1_rxbuff.front() + SPB * i;
+    }
     /** Main code *****************************************************/
 
         // set USRP Rx params
@@ -99,18 +100,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     rx_stream->issue_stream_cmd(stream_cmd);
 
         // grab initial block of received samples from USRP with nice long timeout (gets discarded)
-    num_rx_samps = rx_stream->recv(rxbuffs, SPB, md_rx, 3.0);
+    num_rx_samps = rx_stream->recv(rxbuffs[0], SPB, md_rx, 3.0);
 
     std::cout << std::endl;
 
     while(not stop_signal_called){
             // grab block of received samples from USRP
-        num_rx_samps = rx_stream->recv(rxbuffs, SPB, md_rx); 
-            // Copy Rx buffers
-        for(k = 0; k < SPB; k++){
-            ch0_out[(SPB*rx_ctr)+k] = rxbuffs[0][k];
-            ch1_out[(SPB*rx_ctr)+k] = rxbuffs[1][k];
-        }
+        num_rx_samps = rx_stream->recv(rxbuffs[rx_ctr], SPB, md_rx); 
         
             // Increment counter
         rx_ctr++;
@@ -131,12 +127,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // Write buffers to file
     std::cout << "Writing buffers to file..." << std::endl;
     
-    std::cout << "    Channel 0 (SlaveNode.dat)..." << std::flush;
-    writebuff_CINT16("./SlaveNode.dat", &ch0_out.front(), time*SPB);
+    std::cout << "    Channel 0 (RX2-A)..." << std::flush;
+    writebuff_CINT16("./RX2-A.dat", &ch0_rxbuff.front(), time*SPB);
     std::cout << "done!" << std::endl;
     
-    std::cout << "    Channel 1 (MasterNode.dat)..." << std::flush;
-    writebuff_CINT16("./MasterNode.dat", &ch1_out.front(), time*SPB);
+    std::cout << "    Channel 1 (RX2-B)..." << std::flush;
+    writebuff_CINT16("./RX2-B.dat", &ch1_rxbuff.front(), time*SPB);
     std::cout << "done!" << std::endl;
 
     
