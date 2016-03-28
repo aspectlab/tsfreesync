@@ -26,7 +26,7 @@
 
 // tweakable parameters
 #define SAMPRATE        100e3       // sampling rate (Hz)
-#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
+#define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define TXGAIN0         40.0        // Tx frontend gain in dB (Ch 0)
 #define TXGAIN1         60.0        // Tx frontend gain in dB (Ch 1)
@@ -44,7 +44,7 @@
 #define XCORR_AMP       64          // peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       5e7         // minimum signal squared magnitude that indicates presence of sinc pulse
+#define THRESHOLD       1e6         // minimum signal squared magnitude that indicates presence of sinc pulse
 #define FLIP_SCALING    300         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
@@ -94,7 +94,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     // Only compiled when debugging
     #if ((DEBUG != 0) && (WRITEXCORR != 0))
-    std::vector<INT32U> normxcorr_write(SPB*time);  // Xcorr variable
+        std::vector<INT32U> normxcorr_write(SPB*time);  // Xcorr variable
     #else
     #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
 
@@ -132,6 +132,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     std::cout << "Writing Sinc to file..." << std::flush;
     writebuff_CINT16("./xcorr_sinc.dat", &xcorr_sinc.front(), SPB);
+    writebuff_CINT16("./dbug_sinc.dat", &dbug_sinc.front(), SPB);
     std::cout << "done!" << std::endl;
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
@@ -215,9 +216,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // 4-state machine determines what to send on antenna TX/RX-A (chan0)... send either zeros, or flipped receive buffers
         txbuffs[0] = &zero.front();
+        /** CROSS CORRELATION *************************************************/
         for (i = 0; i < SPB; i++){
-
-            /** CROSS CORRELATION *****************************************/
             xcorr = 0;  // Initialize xcorr variable
 
             // Cross correlation for circular buffer
@@ -249,6 +249,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Trigger calculation block after extra buffer
             if ((normxcorr[i] >= THRESHOLD)&&(state == SEARCHING)){
                 std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
+                std::cout << "FLIP1" << std::endl;
 
                 if(rxbuff_ctr - 1 == -1){
                     idx = NUMRXBUFFS-1;
@@ -261,11 +262,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
                 }
                 state = FLIP3;
+
             }else{}
         }
 
         switch (state) {
             case FLIP3: // state 1 -- flip third segment, and transmit
+            std::cout << "FLIP3" << std::endl;
             for (j = 0; j < SPB; j++) {
                 flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
             }
@@ -273,7 +276,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             state = FLIP2;
             break;
             case FLIP2:  // state 2 -- flip second segment, and transmit
-
+            std::cout << "FLIP2" << std::endl;
             if(rxbuff_ctr + 1 == 3){
                 idx = 0;
             }else{
@@ -286,6 +289,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
             txbuffs[0] = flipbuffs[1];
             state = TRANSMIT;
+            break;
+            case SEARCHING:
+                // DO NOTHING
             break;
             default: // state 3 -- transmit flipped first segment
             txbuffs[0] = flipbuffs[2];

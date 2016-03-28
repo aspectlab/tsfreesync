@@ -22,7 +22,7 @@
 #define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        2           // Length of time to record in seconds
+#define DURATION        4           // Length of time to record in seconds
 
 #define WRITEXCORR      1           // Write cross correlation to file (binary)
 
@@ -59,7 +59,7 @@
 #define DBSINC_AMP      30000       // peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       5e7         // Threshold of cross correlation pulse detection
+#define THRESHOLD       1.5e5       // Threshold of cross correlation pulse detection
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 
@@ -115,7 +115,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT16U num_rx_samps;
 
         // Correlation variables
-    std::vector<CINT32> xcorr(SPB);                 // Cross correlation
+    CINT32 xcorr;                                   // Cross correlation
     std::vector<INT32U> normxcorr(SPB);             // Normalized cross correlation
     std::vector<INT32U>::iterator p_normxcorrmax;   // Pointer to max element
     bool threshbroken = false;                      // Threhold detection
@@ -171,8 +171,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
 
-        std::cout << "Writing Sinc to file..." << std::flush;
-        writebuff_CINT16("./sinc.dat", &dbug_sinc.front(), SPB);
+        std::cout << "Writing debug and xcorr Sinc to file..." << std::flush;
+        writebuff_CINT16("./xcorr_sinc.dat", &xcorr_sinc.front(), SPB);
+        writebuff_CINT16("./dbug_sinc.dat", &dbug_sinc.front(), SPB);
         std::cout << "done!" << std::endl;
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
@@ -261,28 +262,28 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         /** CROSS CORRELATION *****************************************/
         for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i
-            xcorr[i] = 0;
+            xcorr = 0;
                 // Cross correlation for circular buffer
             if(rxbuff_ctr == 0){
                 for(j = 0; j < SPB-1-i; j++){
-                    xcorr[i] += rxbuffs[NUMRXBUFFS-1][i+j+1] * xcorr_sinc[j];
+                    xcorr += rxbuffs[NUMRXBUFFS-1][i+j+1] * xcorr_sinc[j];
                 }
                 for(j = SPB-1-i; j < SPB; j++){
-                    xcorr[i] += rxbuffs[0][-SPB+1+i+j] * xcorr_sinc[j];
+                    xcorr += rxbuffs[0][-SPB+1+i+j] * xcorr_sinc[j];
                 }
             }else{
                 for (j = 0; j < SPB; j++) {
-                    xcorr[i] += rxbuffs[rxbuff_ctr-1][i+j+1] * xcorr_sinc[j];
+                    xcorr += rxbuffs[rxbuff_ctr-1][i+j+1] * xcorr_sinc[j];
                 }
             }
 
                 // Compute abs^2 of xcorr divided by 4
-            normxcorr[i] = std::norm(CINT32(xcorr[i].real() >> 2,xcorr[i].imag() >> 2));
+            normxcorr[i] = std::norm(CINT32(xcorr.real() >> 2,xcorr.imag() >> 2));
 
             /** Save buffers if enabled by defines ********************/
                 // Save normxcorr if enabled by defined variables
             #if ((DEBUG != 0) && (WRITEXCORR != 0))
-                normxcorr_write[write_ctr] = normxcorr[i];
+                normxcorr_write[(SPB*write_ctr)+i] = normxcorr[i];
             #else
             #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
         }
@@ -291,7 +292,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         p_normxcorrmax = std::max_element(normxcorr.begin(), normxcorr.end());  // find largest abs^2
         max.val  = *p_normxcorrmax;                                             // Save the largeset abs^2
         max.pos  = std::distance(normxcorr.begin(), p_normxcorrmax);            // Save the distance
-        max.corr = xcorr[max.pos];
         max.ts   = md_rx.time_spec;                                             // Save the current rx time spec
 
             // Save maximum points for interpolation
