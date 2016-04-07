@@ -1,10 +1,10 @@
 /***********************************************************************
- * rxnode.cpp          
- * 
+ * rxnode.cpp
+ *
  * This source file implements a two channel receiver on the USRP E310.
- *  
+ *
  * VERSION 10.15.15:1 -- initial version by M.Overdick
- * 
+ *
  **********************************************************************/
 
 #include "includes.hpp"
@@ -13,7 +13,7 @@
 #define DURATION        1           // Length of time to record in seconds
 #define SAMPRATE        5e6         // sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
-#define CLOCKRATE       30.0e6      // clock rate (Hz) 
+#define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define RXGAIN          16.0        // Rx frontend gain in dB
 #define SPB             1000        // samples per buffer
 
@@ -35,23 +35,23 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     /** Constant Decalartions *****************************************/
     const INT32U time = DURATION*(SAMPRATE/SPB);
-    
+
     /** Variable Declarations *****************************************/
-    
+
     // (circular) receive buffers
     std::vector< CINT16 >   ch0_rxbuff(time*SPB);   // Ch 0 is RX2-A
     std::vector< CINT16 >   ch1_rxbuff(time*SPB);   // Ch 1 is RX2-B
-    
+
     // Vector of pointers to sectons of rx_buff
-    std::vector< std::vector< CINT16 *> >   rxbuffs(time*2, std::vector< CINT16 *>(2));     
-    
+    std::vector< std::vector< CINT16 *> >   rxbuffs(time*2, std::vector< CINT16 *>(2));
+
         // Holds the number of received samples returned by rx_stream->recv()
     INT16U num_rx_samps;
 
         // Counters
     INT16U i = 0,j = 0,k = 0;               // Generic counters
     INT32U rx_ctr = 0;                      // Counts loops through main while()
-    
+
     /** Variable Initializations **************************************/
     // Initialise rxbuffs (Vector of pointers)
     for(i = 0; i < time; i++){
@@ -77,7 +77,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));                         // allow for some setup time
 
         // check Ref and LO Lock detect for Rx
-    check_locked_sensor(usrp_rx->get_rx_sensor_names(0), "lo_locked", boost::bind(&uhd::usrp::multi_usrp::get_rx_sensor, usrp_rx, _1, 0), 1.0); 
+    check_locked_sensor(usrp_rx->get_rx_sensor_names(0), "lo_locked", boost::bind(&uhd::usrp::multi_usrp::get_rx_sensor, usrp_rx, _1, 0), 1.0);
 
         // create a receive streamer
     uhd::stream_args_t stream_args_rx("sc16", "sc16");
@@ -86,12 +86,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::rx_metadata_t md_rx;
 
         // report stuff to user (things which may differ from what was requested)
-    std::cout << boost::format("Actual RX Rate: %f Msps...") % (usrp_rx->get_rx_rate()/1e6) << std::endl; 
-    
+    std::cout << boost::format("Actual RX Rate: %f Msps...") % (usrp_rx->get_rx_rate()/1e6) << std::endl;
+
         // set sigint so user can terminate via Ctrl-C
     std::signal(SIGINT, &sig_int_handler);
     std::cout << boost::format("Recording RX CH 0 and CH 1 for %i seconds") % DURATION << std::endl;
-    std::cout << "Press Ctrl + C to stop streaming..." << std::endl; 
+    std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
 
         // setup receive streaming
     uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
@@ -106,19 +106,19 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     while(not stop_signal_called){
             // grab block of received samples from USRP
-        num_rx_samps = rx_stream->recv(rxbuffs[rx_ctr], SPB, md_rx); 
-        
+        num_rx_samps = rx_stream->recv(rxbuffs[rx_ctr], SPB, md_rx);
+
             // Increment counter
         rx_ctr++;
-        
+
             // Check if full time has passed
         if(rx_ctr == time){
             break;
         }else{}
-        
+
             // Report progress to terminal
         std::cout << boost::format("\r\t%2i Percent Complete") % (rx_ctr*100/time) << std::flush;
-        
+
     }   /** while(not stop_signal_called) *****************************/
 
         // Report progress to terminal
@@ -126,16 +126,16 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // Write buffers to file
     std::cout << "Writing buffers to file..." << std::endl;
-    
+
     std::cout << "    Channel 0 (RX2-A)..." << std::flush;
     writebuff_CINT16("./RX2-A.dat", &ch0_rxbuff.front(), time*SPB);
     std::cout << "done!" << std::endl;
-    
+
     std::cout << "    Channel 1 (RX2-B)..." << std::flush;
     writebuff_CINT16("./RX2-B.dat", &ch1_rxbuff.front(), time*SPB);
     std::cout << "done!" << std::endl;
 
-    
+
     return EXIT_SUCCESS;
 }   /** main() ********************************************************/
 

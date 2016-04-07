@@ -17,12 +17,12 @@
 #include "includes.hpp"
 
     // Compliation parameters
-#define DEBUG           1           // Debug (binary) if 1, debug code compiled
+#define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
+#define WRITESINC       0           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        4           // Length of time to record in seconds
+#define DURATION        40          // Length of time to record in seconds
 
 #define WRITEXCORR      1           // Write cross correlation to file (binary)
 
@@ -38,12 +38,12 @@
 #define SAMPRATE        100e3       // sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
-#define TXGAIN          30.0        // Tx frontend gain in dB
+#define TXGAIN          60.0        // Tx frontend gain in dB
 #define RXGAIN          0.0         // Rx frontend gain in dB
 
     // Kalman Filter
-#define KALGAIN1        1           // Kalman Gain for master clock estimate
-#define KALGAIN2        1           // Kalman Gain for master clock estimate
+#define KALGAIN1        0.9           // Kalman Gain for master clock estimate
+#define KALGAIN2        0.00009       // Kalman Gain for master clock estimate
 
     // Transmission parameters
 #define SPB             1000        // samples per buffer
@@ -59,7 +59,7 @@
 #define DBSINC_AMP      30000       // peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       1.5e5       // Threshold of cross correlation pulse detection
+#define THRESHOLD       1e6         // Threshold of cross correlation pulse detection
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 
@@ -130,8 +130,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32 crnt_master    = 0.0;          // Current time of master
     FP32 time_est       = 0.0;          // Time estimate of master
     FP32 time_pred      = 0.0;          // Time prediction of master
-    FP32 rate_est       = 1.0;          // Rate estimate of master
-    FP32 rate_pred      = 1.0;          // Rate prediction of master
+    FP32 rate_est       = 1000.0;       // Rate estimate of master
+    FP32 rate_pred      = 1000.0;       // Rate prediction of master
     FP32 pred_error     = 0.0;          // Prediction error
 
         // Counters
@@ -140,6 +140,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
     INT32  timer        = 0;            // Timer for time between transmitting and receiving a pulse
+    INT32  max_errors   = 0;            // Counts number of erroneous maximums
+    bool   rx_expected  = false;         // Checks whether a returned pulse is expected
+    INT32  rx_missing   = 0;            // Counts number of pulses that failed to receive
+    INT32  rx_extra     = 0;            // Counts number of pulses that were not expected
+    INT32  nping_sent   = 0;            // Number of pings sent
 
 
     /** Debugging vars ************************************************/
@@ -170,7 +175,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
-
         std::cout << "Writing debug and xcorr Sinc to file..." << std::flush;
         writebuff_CINT16("./xcorr_sinc.dat", &xcorr_sinc.front(), SPB);
         writebuff_CINT16("./dbug_sinc.dat", &dbug_sinc.front(), SPB);
@@ -349,11 +353,18 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }else if(max.val >= prev_max.val){
                 truemax = max;
             }
-
-            std::cout << boost::format("%i, %i, %i") % truemax.points[0] % truemax.points[1] % truemax.points[2] << std::endl << std::endl;
-
+            if((truemax.points[1] < truemax.points[0])||(truemax.points[1] < truemax.points[2])){
+                std::cout << "TRUEMAX WAS INCORRECTLY CALCULATED!" << std::endl;
+                max_errors++;
+            }
+            std::cout << boost::format("%i, %i, %i") % truemax.points[0] % truemax.points[1] % truemax.points[2] << std::endl;
+            if (!rx_expected){
+                std::cout << "Unexpected pulse received" << std::endl;
+                rx_extra++;
+            }else{}
+            rx_expected = false;
                 // Display info on the terminal
-            std::cout << boost::format("Ping RX Time %10.5f | Val %10i | Pos %3i | Timer %4i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.val % truemax.pos % timer << std::flush;
+            std::cout << boost::format("Ping RX Time %10.5f | Pos %3i | Timer %4i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.pos % timer << std::flush;
 
             /** Delay estimator (Interpolator & Kalman filter)**/
 
@@ -363,13 +374,21 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
             pkpos = -b/(2*a);
 
-            std::cout << boost::format(" | fine %f") % pkpos << std::endl;
+            std::cout << boost::format(" | Interp %f") % pkpos << std::endl;
 
             //pkpos = 0;  // Set fine delay to zero for debugging
 
                 // Kalman Filter
-            crnt_master = (timer - (truemax.pos+pkpos)*0.5) * rate_est;
+            crnt_master = (timer/SPB - (truemax.pos+pkpos)*0.5) * rate_est;
             pred_error  = crnt_master - time_pred;
+
+            while(pred_error >= (SPB/2)){
+                pred_error -= SPB;
+            }
+            while(pred_error < -(SPB/2)){
+                pred_error += SPB;
+            }
+
 
                 // Update Estimates
             time_est  = time_pred + KALGAIN1 * pred_error;
@@ -379,15 +398,17 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             time_pred = time_est + rate_est;
             rate_pred = rate_est;
 
+            std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
 
             /** Delay Adjustment **/
                 // SPB will change with counter to be implemented
             //Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+pkpos+SPB)/2));
-            Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+pkpos)/2));
+            // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+pkpos)/2));
 
                 // Exit calculating mode
             calculate = false;
         }else{
+            std::cout << boost::format("I Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
             time_est  = time_pred;
             rate_est  = rate_pred;
             time_pred = time_est + rate_est;
@@ -396,73 +417,91 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         /***************************************************************
          * TRANSMITTING block - Transmits debug signal and "ping"
          **************************************************************/
-                // Set time spec to be one buffer ahead in time
-            md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
+            // Set time spec to be one buffer ahead in time
+        md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
 
-            timer += SPB;
+        timer += SPB;
+        std::cout << "timer..." << timer << std::endl;
 
-                // Ping channel TX
-            if (ping_ctr == PING_PERIOD-1) {
-                txbuffs[0] = &sync_sinc.front();
-                ping_ctr = 0;
+            // Ping channel TX
+        if (ping_ctr == PING_PERIOD-1) {
 
-                if(ping_ctr == 0){
-                    std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
-                }else{}
+            if (rx_expected){
+                std::cout << "Expected pulse not received" << std::endl << std::endl;
+                rx_missing++;
+            }else{}
 
-                timer = -TXDELAY*SPB;
+            txbuffs[0] = &sync_sinc.front();
+            ping_ctr = 0;
 
-            } else {
-                txbuffs[0] = &zero.front();
-                ping_ctr++;
-            }
+            if(ping_ctr == 0){
+                std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
+                nping_sent++;
+                rx_expected = true;
+            }else{}
 
-                // Debug Channel TX
-            if (debug_ctr == DEBUG_PERIOD-1) {
-                txbuffs[1] = &dbug_sinc.front();
-                debug_ctr = 0;
-            } else {
-                txbuffs[1] = &zero.front();
-                debug_ctr++;
-            }
+            timer = -TXDELAY*SPB;
 
-                // Transmit both buffers
-            tx_stream->send(txbuffs, SPB, md_tx);
-            md_tx.start_of_burst = false;
-            md_tx.has_time_spec = true;
+        } else {
+            txbuffs[0] = &zero.front();
+            ping_ctr++;
+        }
 
-            /** Write buffers to file and exit program ****************/
-            #if ((DEBUG != 0) && (WRITERX != 0))
-                if(write_ctr >= time){
-                    std::cout << "Writing rx buffer to file..." << std::flush;
-                    writebuff_CINT16("./rx.dat", rxbuffs[0], SPB*time);
-                    std::cout << "done!" << std::endl;
+            // Debug Channel TX
+        if (debug_ctr == DEBUG_PERIOD-1) {
+            txbuffs[1] = &dbug_sinc.front();
+            debug_ctr = 0;
+        } else {
+            txbuffs[1] = &zero.front();
+            debug_ctr++;
+        }
 
-                    #if (WRITEXCORR == 0)
-                        break;
-                    #else
-                    #endif /* #if (WRITEXCORR == 0) */
+            // Transmit both buffers
+        tx_stream->send(txbuffs, SPB, md_tx);
+        md_tx.start_of_burst = false;
+        md_tx.has_time_spec = true;
 
-                }else{}
-            #else
-            #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+        /** Write buffers to file and exit program ****************/
+        #if ((DEBUG != 0) && (WRITERX != 0))
+            if(write_ctr >= time){
+                std::cout << "Writing rx buffer to file..." << std::flush;
+                writebuff_CINT16("./rx.dat", rxbuffs[0], SPB*time);
+                std::cout << "done!" << std::endl;
 
-            #if ((DEBUG != 0) && (WRITEXCORR != 0))
-                if(write_ctr >= time){
-                    std::cout << "Writing normalized correlation to file..." << std::flush;
-                    writebuff_INT32U("./xcorr.dat", &normxcorr_write.front(), SPB*time);
-                    std::cout << "done!" << std::endl;
+                #if (WRITEXCORR == 0)
                     break;
-                }else{}
-            #else
-            #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+                #else
+                #endif /* #if (WRITEXCORR == 0) */
 
-            #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
-                write_ctr++;
-            #else
-            #endif /* ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0))) */
+            }else{}
+        #else
+        #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+
+        #if ((DEBUG != 0) && (WRITEXCORR != 0))
+            if(write_ctr >= time){
+                std::cout << "Writing normalized correlation to file..." << std::flush;
+                writebuff_INT32U("./xcorr.dat", &normxcorr_write.front(), SPB*time);
+                std::cout << "done!" << std::endl;
+                break;
+            }else{}
+        #else
+        #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+
+        #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
+            write_ctr++;
+        #else
+        #endif /* ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0))) */
 
     }   /** while(not stop_signal_called) *****************************/
+
+    std::cout << "Transmission Statistics:" << std::endl;
+    std::cout << "    " << max_errors << " Maximums were incorrect." << std::endl;
+    std::cout << "    Total Number of Pulses Sent: " << nping_sent << std::endl;
+    std::cout << "    Total Pulses Missed: " << rx_missing << " Total Extra Pulses: " << rx_extra << " Total Errors: " << (rx_missing+rx_extra) << std::endl;
+    std::cout <<  boost::format("    Percent Loss: %5.2f") % (100*FP32(rx_missing)/nping_sent) << std::endl;
+    std::cout <<  boost::format("    Percent Extras: %5.2f") % (100*FP32(rx_extra)/nping_sent) << std::endl;
+    // std::cout << "    Percent Loss: " << (100*rx_missing/nping_sent) << "%" << std::endl;
+    // std::cout << "    Percent Extras: " << (100*rx_extra/nping_sent) << "%"  << std::endl;
 
         // send a mini EOB packet
     md_tx.end_of_burst = true;

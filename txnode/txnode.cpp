@@ -1,24 +1,28 @@
 /***********************************************************************
- * two_tx_test.cpp          
- * 
+ * two_tx_test.cpp
+ *
  * Sends out sinc pulses on two channels.
- *  
+ *
  * VERSION 12.10.15:1 -- initial version by A.G.Klein / M.Overdick
- * 
+ *
  **********************************************************************/
 
 #include "includes.hpp"
+
+#define CH0_DELAY       0           // Delay for channel 0 (TRX-A)
+
+#define CH1_DELAY       1.1         // Delay for channel 1 (TRX-B)
 
     // Compliation parameters
 #define DEBUG           1           // Debug (binary) if 1, debug code compiled
 
 #define WRITESINC       1           // Write Sinc (binary) if 1, template sinc pulse
                                     // is written to file "./sinc.dat"
-                            
+
     // tweakable parameters
 #define SAMPRATE        100e3       // sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
-#define CLOCKRATE       30.0e6      // clock rate (Hz) 
+#define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define TXGAIN          60.0        // Tx frontend gain in dB
 
 #define SPB             1000        // samples per buffer
@@ -26,10 +30,10 @@
 #define BW              (0.75)      // normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             (1.0)       // normalized freq offset of sinc pulse (1 --> Nyquist)
 #define PULSE_PERIOD    1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
-    // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that: 
+    // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that:
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
-    
+
 #define THRESHOLD       1e7         // Threshold of cross correlation
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
@@ -51,7 +55,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     /** Constant Decalartions *****************************************/
 
     /** Variable Declarations *****************************************/
-    
+
         // create sinc and zero
     std::vector< CINT16 >   sinc1(SPB);                 // stores precomputed sinc pulse debug clock            (adjusted)
     std::vector< CINT16 >   sinc0(SPB);                 // stores precomputed sinc pulse ping to master         (constant)
@@ -64,37 +68,37 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector<INT32U>::iterator p_normxcorrmax;   // Pointer to max element
     bool threshbroken = false;                      // Threhold detection
     bool calculate    = false;                      // Calculate delay trigger
-    
+
         // Counters
     INT16U pulse_ctr    = 0;            // Counter for transmitting pulses
     INT16U i,j,k;                       // Generic counters
-    
+
     /** Debugging vars ************************************************/
-    
+
     /** Variable Initializations **************************************/
 
-    Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, 0.0);
-    Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, -0.5);
-    
+    Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, CH0_DELAY);
+    Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, CH1_DELAY);
+
     /** Debug code for writing sinc pulse *****************************/
 
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
-    
+
         std::cout << "Writing Sinc0 to file...(TRX-A)" << std::flush;
         writebuff_CINT16("./sinc0.dat", &sinc0.front(), SPB);
         std::cout << "done!" << std::endl;
-        
+
         std::cout << "Writing Sinc1 to file...(TRX-B)" << std::flush;
         writebuff_CINT16("./sinc1.dat", &sinc1.front(), SPB);
         std::cout << "done!" << std::endl;
-        
+
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
 
     /** Main code *****************************************************/
 
-        // create a USRP Tx device 
+        // create a USRP Tx device
     uhd::usrp::multi_usrp::sptr usrp_tx = uhd::usrp::multi_usrp::make(std::string(""));
     usrp_tx->set_master_clock_rate(CLOCKRATE);                                   // set clock rate
     usrp_tx->set_clock_source(std::string("internal"));                          // lock mboard clocks
@@ -129,36 +133,40 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     usrp_tx->set_time_unknown_pps(uhd::time_spec_t(0.0));
 
         // report stuff to user (things which may differ from what was requested)
-    std::cout << boost::format("Actual TX Rate: %f Msps...") % (usrp_tx->get_tx_rate()/1e6) << std::endl; 
-    std::cout << boost::format("Actual time between pulses: %f sec...") % (PULSE_PERIOD*SPB/SAMPRATE) << std::endl << std::endl;
-    
+    std::cout << boost::format("Actual TX Rate: %f Msps...") % (usrp_tx->get_tx_rate()/1e6) << std::endl;
+    std::cout << boost::format("Actual time between pulses: %f sec...") % (PULSE_PERIOD*SPB/SAMPRATE) << std::endl;
+    std::cout << boost::format("CH 0 Delay: %f Samples...") % (CH0_DELAY) << std::endl;
+    std::cout << boost::format("CH 1 Delay: %f Samples...") % (CH1_DELAY) << std::endl << std::endl;
+
         // set sigint so user can terminate via Ctrl-C
     std::signal(SIGINT, &sig_int_handler);
-    std::cout << "Press Ctrl + C to stop streaming..." << std::endl; 
+    std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
+
+    md_tx.time_spec = usrp_tx->get_time_now();
 
     while(not stop_signal_called){
         /***************************************************************
          * TRANSMITTING block - Transmits debug signal and "ping"
          **************************************************************/
                 // Set time spec to be one buffer ahead in time
-            md_tx.time_spec = usrp_tx->get_time_now()+uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
-            
+            md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
+
                 // Debug Channel TX
             if (pulse_ctr == PULSE_PERIOD-1) {
-                txbuffs[0] = &sinc0.front();  
-                txbuffs[1] = &sinc1.front();  
+                txbuffs[0] = &sinc0.front();
+                txbuffs[1] = &sinc1.front();
                 pulse_ctr = 0;
             } else {
-                txbuffs[0] = &zero.front();  
-                txbuffs[1] = &zero.front();  
+                txbuffs[0] = &zero.front();
+                txbuffs[1] = &zero.front();
                 pulse_ctr++;
             }
-                
+
                 // Transmit both buffers
             tx_stream->send(txbuffs, SPB, md_tx);
             md_tx.start_of_burst = false;
             md_tx.has_time_spec = true;
-            
+
 
     }   /** while(not stop_signal_called) *****************************/
 
@@ -166,7 +174,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     md_tx.end_of_burst = true;
     tx_stream->send("", 0, md_tx);
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));
-    
+
     return EXIT_SUCCESS;
 }   /** main() ********************************************************/
 
