@@ -5,15 +5,6 @@
  * This header file generates a modulated sinc pulse that is zero-padded
  * and stored into a vector.
  *
- *
- * VERSION 08.20.15:1 -- initial version by Mitchell Overdick
- * VERSION 09.07.15:2 -- modified by A.G.Klein to include parameterizable
- *                       relative bandwidth, etc, and to specify
- *                       pulse width in a way that avoids bad windowing
- * VERSION 10.13.15:1 -- added code to calculate shifted sinc pulse by τ
- *                       switched to types from types.hpp, now computes
- *                       using integer math.
- *
  **********************************************************************/
 
 #include "includes.hpp"
@@ -31,12 +22,12 @@ void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U spb, FP32 t
 void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U spb, FP32 tau){
             // Counters
     INT16  i   = 0;
-    FP32    j   = 0;
-    FP32    w0  = cbw*PI;   // w0 controls frequency shift
-    FP32    eta = bw*PI;    // eta controls BW of sinc pulse
+    FP32   j   = 0;
+    FP32   w0  = cbw*PI;    // w0 controls frequency shift
+    FP32   eta = bw*PI;     // eta controls BW of sinc pulse
 
     FP32  ipart;            // Integer part of tau
-    FP32   fpart;            // Fractional part of tau
+    FP32  fpart;            // Fractional part of tau
 
         // Make shift always positive
     if(tau < 0){

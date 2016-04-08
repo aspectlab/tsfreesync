@@ -1,70 +1,65 @@
-/***********************************************************************
+/**************************************************************************
 * masternode.cpp
 *
 * This source file implements the "master" node in the timestamp free
 * protocol. It uses a rudimentary energy detector to detect the
 * presence of a pulse, and then plays it back in reverse.
 *
-*
-* VERSION 09.07.15:1 -- initial version by M.Overdick / J.Canfield / A.G.Klein
-* VERSION 10.09.15:1 -- version by M.Overdick / J.Canfield / A.G.Klein
-*
-**********************************************************************/
+**************************************************************************/
 
 #include "includes.hpp"
 
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define DURATION        2           // time to record (in seconds)
+#define DURATION        2           // Duration of recording (s)
 
-#define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
-// is written to file "./sinc.dat"
+#define WRITESINC       1           // Write template sinc pulses (binary)
 
-#define WRITERX         1           // Enable writing RX buffer to file
+#define WRITERX         1           // Enable writing RX buffer to file (binary)
 
 #define WRITEXCORR      1           // Write cross correlation to file (binary)
 
-// tweakable parameters
-#define SAMPRATE        100e3       // sampling rate (Hz)
-#define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
-#define CLOCKRATE       30.0e6      // clock rate (Hz)
-#define TXGAIN0         60.0        // Tx frontend gain in dB (Ch 0)
-#define TXGAIN1         0.0        // Tx frontend gain in dB (Ch 1)
-#define RXGAIN          12.0         // Rx frontend gain in dB
+    // tweakable parameters
+#define SAMPRATE        100e3       // Sampling rate (Hz)
+#define CARRIERFREQ     900.0e6     // Carrier frequency (Hz)
+#define CLOCKRATE       30.0e6      // Clock rate (Hz)
+#define TXGAIN0         60.0        // TX frontend gain, Ch 0 (dB)
+#define TXGAIN1         0.0         // TX frontend gain, Ch 1 (dB)
+#define RXGAIN          12.0        // RX frontend gain (dB)
 
-// Transmission parameters
-#define SPB             1000        // samples per buffer
-#define NRXBUFFS        3           // number of receive buffers (circular)
-#define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
-#define BW              (0.75)      // normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define CBW             (1.0)       // normalized freq offset of sinc pulse (1 --> Nyquist)
-#define PERIOD          1           // debug channel clock tick period (in number of buffers... in actual time units, will be PERIOD*SPB/SAMPRATE).
+    // Transmission parameters
+#define SPB             1000        // Samples Per Buffer
+#define NRXBUFFS        3           // Number of receive buffers (circular)
+#define TXDELAY         3           // Buffers in the future that we schedule transmissions (must be odd)
+#define BW              0.75        // Normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             1.0         // Normalized freq offset of sinc pulse (1 --> Nyquist)
+#define DEBUG_PERIOD    1           // Debug Period (# of buffers)
 
-// Sinc pulse amplitudes (integer)
-#define XCORR_AMP       64          // peak value of sinc pulse generated for cross correlation (recommended to be 64)
-#define DBSINC_AMP      30000       // peak value of sinc pulse generated for debug channel (max 32768)
+    // Sinc pulse amplitudes (integer)
+#define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
+#define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       1e7         // minimum signal squared magnitude that indicates presence of sinc pulse
-#define FLIP_SCALING    75         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       1e7         // Threshold of cross correlation pulse detection
+#define FLIP_SCALING    75          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
 
 typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
 
-/***********************************************************************
+/**************************************************************************
 * Signal handlers
-**********************************************************************/
+**************************************************************************/
 static bool stop_signal_called = false;
 void sig_int_handler(int){stop_signal_called = true;}
 
-/***********************************************************************
+/**************************************************************************
 * Main function
-**********************************************************************/
+**************************************************************************/
 int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
 
-    /** Variable Declarations *****************************************/
+    /** Variable Declarations ********************************************/
         // Counter for writting large buffers
     #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
         INT16U write_ctr = 0;
@@ -106,7 +101,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
 
 
-    /** Variable Initializations **************************************/
+    /** Variable Initializations *****************************************/
         // Initialise rxbuffs (Vector of pointers)
     for(i = 0; i < NUMRXBUFFS; i++){
         rxbuffs[i] = &rxbuff.front() + SPB * i;
@@ -120,12 +115,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     Sinc_Gen(&xcorr_sinc.front(),XCORR_AMP, BW, CBW, SPB, 0.0);
     for (j = 0; j < SPB; j++){
         xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
-        //xcorr_sinc[j] = xcorr_sinc[j];
     }
 
     Sinc_Gen(&dbug_sinc.front(),DBSINC_AMP, BW, CBW, SPB, 0.0);
 
-    /** Debug code for writing sinc pulse *****************************/
+    /** Debug code for writing sinc pulse ********************************/
 
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
@@ -135,7 +129,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         std::cout << "done!" << std::endl;
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
-    /** Code **********************************************************/
+
+    /** Code *************************************************************/
 
         // create a USRP Tx device
     uhd::usrp::multi_usrp::sptr usrp_tx = uhd::usrp::multi_usrp::make(std::string(""));
@@ -192,7 +187,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // report stuff to user (things which may differ from what was requested)
     std::cout << boost::format("Actual TX Rate: %f Msps...") % (usrp_tx->get_tx_rate()/1e6) << std::endl;
-    std::cout << boost::format("Actual time between pulses: %f sec...") % (PERIOD*SPB/SAMPRATE) << std::endl << std::endl;
+    std::cout << boost::format("Actual time between pulses: %f sec...") % (DEBUG_PERIOD*SPB/SAMPRATE) << std::endl << std::endl;
 
         // set sigint so user can terminate via Ctrl-C
     std::signal(SIGINT, &sig_int_handler);
@@ -212,9 +207,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // grab block of received samples from USRP
         rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx);
 
-
             // 4-state machine determines what to send on antenna TX/RX-A (chan0)... send either zeros, or flipped receive buffers
         txbuffs[0] = &zero.front();
+
         /** CROSS CORRELATION *************************************************/
         for (i = 0; i < SPB; i++){
             xcorr = 0;  // Initialize xcorr variable
@@ -246,16 +241,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Trigger calculation block after extra buffer
             if ((normxcorr[i] >= THRESHOLD)&&(state == SEARCHING)){
                 std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
-                // std::cout << "rxbuff_ctr: " << rxbuff_ctr << " " << std::flush;
-                // std::cout << "FLIP1 " << std::flush;
 
                 if(rxbuff_ctr - 1 == -1){
                     idx = NUMRXBUFFS-1;
                 }else{
                     idx = rxbuff_ctr - 1;
                 }
-
-                // std::cout << "idx: " << idx << std::endl;
 
                 for (j = 0; j < SPB; j++) {
                     flipbuffs[2][j] = std::conj(rxbuffs[idx][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
@@ -267,17 +258,14 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         switch (state) {
             case FLIP3: // state 1 -- flip third segment, and transmit
-                // std::cout << "rxbuff_ctr: " << rxbuff_ctr << " " << std::flush;
-                // std::cout << "FLIP3" << std::endl;
                 for (j = 0; j < SPB; j++) {
                     flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                 }
                 txbuffs[0] = flipbuffs[0];
                 state = FLIP2;
                 break;
+
             case FLIP2:  // state 2 -- flip second segment, and transmit
-                // std::cout << "rxbuff_ctr: " << rxbuff_ctr << " " << std::flush;
-                // std::cout << "FLIP2 " << std::endl;
                 for (j = 0; j < SPB; j++){
                     flipbuffs[1][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
 
@@ -285,9 +273,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 txbuffs[0] = flipbuffs[1];
                 state = TRANSMIT;
             break;
+
             case SEARCHING:
                 // DO NOTHING
             break;
+
             default: // state 3 -- transmit flipped first segment
                 txbuffs[0] = flipbuffs[2];
                 state = SEARCHING;
@@ -295,7 +285,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }
 
             // set up transmit buffers to send sinc pulses (or zeros) on TX/RX-B (chan1)
-        if (count == PERIOD-1) {
+        if (count == DEBUG_PERIOD-1) {
             txbuffs[1] = &dbug_sinc.front();
             count = 0;
         } else {
@@ -359,7 +349,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));
 
     return EXIT_SUCCESS;
-}
+}   /** main() ****************************************************************/
 
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time){
     if (std::find(sensor_names.begin(), sensor_names.end(), sensor_name) == sensor_names.end())
