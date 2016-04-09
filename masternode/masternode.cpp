@@ -11,7 +11,7 @@
 
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define DURATION        2           // Duration of recording (s)
+#define DURATION        5           // Duration of recording (s)
 
 #define WRITESINC       1           // Write template sinc pulses (binary)
 
@@ -25,7 +25,7 @@
 #define CLOCKRATE       30.0e6      // Clock rate (Hz)
 #define TXGAIN0         60.0        // TX frontend gain, Ch 0 (dB)
 #define TXGAIN1         0.0         // TX frontend gain, Ch 1 (dB)
-#define RXGAIN          12.0        // RX frontend gain (dB)
+#define RXGAIN          0.0         // RX frontend gain (dB)
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer
@@ -39,8 +39,8 @@
 #define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       1e7         // Threshold of cross correlation pulse detection
-#define FLIP_SCALING    75          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       1e8         // Threshold of cross correlation pulse detection
+#define FLIP_SCALING    300         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);

@@ -16,7 +16,7 @@
 #define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        2           // Length of time to record in seconds
+#define DURATION        5           // Length of time to record in seconds
 
 #define WRITEXCORR      1           // Write cross correlation to file (binary)
 
@@ -47,7 +47,7 @@
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       1e6         // Threshold of cross correlation pulse detection
+#define THRESHOLD       1e8         // Threshold of cross correlation pulse detection
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 
@@ -384,7 +384,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
             /** Delay Adjustment **/
                 // SPB will change with counter to be implemented
-            // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+interp+SPB)/2));
+            // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+interp+SPB)/2));
             // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+interp)/2));
 
                 // Exit calculating mode
@@ -397,7 +397,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             rate_est  = rate_pred;
             time_pred = time_est + rate_est * SPB;
                 // Update the sinc pulse
-            // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+interp+SPB)/2));
+            // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+interp+SPB)/2));
             // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+interp)/2));
         }
 
