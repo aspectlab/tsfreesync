@@ -31,14 +31,14 @@
 
     // Kalman Filter Gains
 #define KALGAIN1        0.9         // Gain for master clock time estimate
-#define KALGAIN2        0.00009     // Gain for master clock rate estimate
+#define KALGAIN2        0.00003     // Gain for master clock rate estimate
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
 #define NRXBUFFS        3           // Number of Receive Buffers (circular)
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
-#define BW              0.75        // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
-#define CBW             1.0         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
+#define BW              0.4         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
+#define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
 #define SYNC_PERIOD     20          // Sync Period (# of buffers)
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
 
@@ -357,7 +357,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             std::cout << boost::format(" | Interp %f") % interp << std::endl;
 
                 // Kalman Filter
-            crnt_master = (kal_timer/SPB - (truemax.pos+interp)*0.5) * rate_est*SPB;
+            crnt_master = (kal_timer - (FP32)(truemax.pos+interp)*0.5) * rate_est;
             pred_error  = crnt_master - time_pred;
 
             while(pred_error >= (SPB/2)){
@@ -387,7 +387,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
             // When there is no pulse received, the kalman filter updates the sinc pulse.
         }else{
-            // std::cout << boost::format("I Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
+            std::cout << boost::format("I Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
             time_est  = time_pred;
             rate_est  = rate_pred;
             time_pred = time_est + rate_est;
@@ -422,6 +422,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }else{}
 
             kal_timer = -TXDELAY*SPB;
+            // kal_timer = 0;
 
         } else {
             txbuffs[0] = &zero.front();

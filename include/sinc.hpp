@@ -42,8 +42,10 @@ void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U spb, FP32 t
     for (i = ipart; i < spb; i++) {
         j = (i - ipart) - (spb/2) + fpart;
         if (j != 0) {
+            // table[i] = CINT16(ampl * SINC(eta*j) * std::cos(w0*j),
+            //                   ampl * SINC(eta*j) * std::sin(w0*j));
             table[i] = CINT16(ampl * SINC(eta*j) * std::cos(w0*j),
-                              ampl * SINC(eta*j) * std::sin(w0*j));
+                              0.0);
         } else {  // avoid division by zero
             table[i] = CINT16(ampl, 0.0);
         }
@@ -53,8 +55,10 @@ void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U spb, FP32 t
     for (i = 0; i < ipart; i++){
         j = (i - ipart) + spb - (spb/2) + fpart;
         if (j != 0) {
+            // table[i] = CINT16(ampl * SINC(eta*j) * std::cos(w0*j),
+            //                   ampl * SINC(eta*j) * std::sin(w0*j));
             table[i] = CINT16(ampl * SINC(eta*j) * std::cos(w0*j),
-                              ampl * SINC(eta*j) * std::sin(w0*j));
+                              0.0);
         } else {  // avoid division by zero
             table[i] = CINT16(ampl, 0.0);
         }

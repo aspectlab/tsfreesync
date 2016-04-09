@@ -11,7 +11,7 @@
 
 #define CH0_DELAY       0           // Delay for channel 0 (TRX-A)
 
-#define CH1_DELAY       1.1         // Delay for channel 1 (TRX-B)
+#define CH1_DELAY       0           // Delay for channel 1 (TRX-B)
 
     // Compliation parameters
 #define DEBUG           1           // Debug (binary) if 1, debug code compiled

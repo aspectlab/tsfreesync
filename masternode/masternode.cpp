@@ -31,8 +31,8 @@
 #define SPB             1000        // Samples Per Buffer
 #define NRXBUFFS        3           // Number of receive buffers (circular)
 #define TXDELAY         3           // Buffers in the future that we schedule transmissions (must be odd)
-#define BW              0.75        // Normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define CBW             1.0         // Normalized freq offset of sinc pulse (1 --> Nyquist)
+#define BW              0.4         // Normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             0.5         // Normalized freq offset of sinc pulse (1 --> Nyquist)
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
 
     // Sinc pulse amplitudes (integer)
