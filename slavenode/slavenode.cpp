@@ -37,7 +37,7 @@
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
 #define NRXBUFFS        3           // Number of Receive Buffers (circular)
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
-#define BW              0.4         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
+#define BW              0.1         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
 #define SYNC_PERIOD     20          // Sync Period (# of buffers)
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
@@ -110,19 +110,23 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32 interp;                        // Position of peak
 
         // Kalmann filter variables
-    FP32 crnt_master    = 0.0;          // Current time of master
-    FP32 time_est       = 0.0;          // Time estimate of master
-    FP32 time_pred      = 0.0;          // Time prediction of master
-    FP32 rate_est       = 1.0;          // Rate estimate of master
-    FP32 rate_pred      = 1.0;          // Rate prediction of master
-    FP32 pred_error     = 0.0;          // Prediction error
+    FP32  crnt_master   = 0.0;          // Current time of master
+    FP32  time_est      = 0.0;          // Time estimate of master
+    FP32  time_pred     = 0.0;          // Time prediction of master
+    FP32  rate_est      = 1.0;          // Rate estimate of master
+    FP32  rate_pred     = 1.0;          // Rate prediction of master
+    FP32  pred_error    = 0.0;          // Prediction error
+    INT32 kal_timer     = 0;            // Timer for time between transmitting and receiving a pulse
+
+        // Kalman tinker vars
+    FP32 time_est_tx    = 0.0;          // Time estimate of master at transmission
+    FP32 kal_timer_adj  = 0.0;          // Adjusted kalman time
 
         // Counters
     INT16U ping_ctr     = 0;            // Counter for transmitting pulses
     INT16U debug_ctr    = 0;            // Counter for transmitting pulses
     INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
-    INT32  kal_timer    = 0;            // Timer for time between transmitting and receiving a pulse
     INT32  max_errors   = 0;            // Counts number of erroneous maximums
     bool   rx_expected  = false;        // Checks whether a returned pulse is expected
     INT32  rx_missing   = 0;            // Counts number of pulses that failed to receive
@@ -357,7 +361,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             std::cout << boost::format(" | Interp %f") % interp << std::endl;
 
                 // Kalman Filter
-            crnt_master = (kal_timer - (FP32)(truemax.pos+interp)*0.5) * rate_est;
+            kal_timer_adj = kal_timer - (truemax.pos+interp)*0.5;
+            crnt_master = (kal_timer_adj+time_est_tx) * rate_est;
             pred_error  = crnt_master - time_pred;
 
             while(pred_error >= (SPB/2)){
@@ -372,7 +377,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             rate_est  = rate_pred + KALGAIN2 * pred_error;
 
                 // Update Predictions
-            time_pred = time_est + rate_est;
+            time_pred = time_est + rate_est * SPB;
             rate_pred = rate_est;
 
             std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
@@ -387,10 +392,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
             // When there is no pulse received, the kalman filter updates the sinc pulse.
         }else{
-            std::cout << boost::format("I Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
+            // std::cout << boost::format("I Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
             time_est  = time_pred;
             rate_est  = rate_pred;
-            time_pred = time_est + rate_est;
+            time_pred = time_est + rate_est * SPB;
                 // Update the sinc pulse
             // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, PULSE_LENGTH, SPB, ((truemax.pos+interp+SPB)/2));
             // Sinc_Gen(&dbug_sinc.front(), 2048, BW, CBW, SPB, ((truemax.pos+interp)/2));
@@ -421,8 +426,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 rx_expected = true;
             }else{}
 
-            kal_timer = -TXDELAY*SPB;
-            // kal_timer = 0;
+            // kal_timer = -TXDELAY*SPB;
+            kal_timer = 0;
+            time_est_tx = time_est;
 
         } else {
             txbuffs[0] = &zero.front();

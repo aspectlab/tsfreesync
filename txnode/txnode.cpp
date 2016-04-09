@@ -9,9 +9,9 @@
 
 #include "includes.hpp"
 
-#define CH0_DELAY       0           // Delay for channel 0 (TRX-A)
+#define CH0_DELAY       0.0         // Delay for channel 0 (TRX-A)
 
-#define CH1_DELAY       0           // Delay for channel 1 (TRX-B)
+#define CH1_DELAY       1.5         // Delay for channel 1 (TRX-B)
 
     // Compliation parameters
 #define DEBUG           1           // Debug (binary) if 1, debug code compiled
@@ -27,8 +27,8 @@
 
 #define SPB             1000        // samples per buffer
 #define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
-#define BW              (0.75)      // normalized bandwidth of sinc pulse (1 --> Nyquist)
-#define CBW             (1.0)       // normalized freq offset of sinc pulse (1 --> Nyquist)
+#define BW              0.1         // normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define CBW             0.5         // normalized freq offset of sinc pulse (1 --> Nyquist)
 #define PULSE_PERIOD    1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that:
     //           + PULSE_LENGTH/BW is an integer
