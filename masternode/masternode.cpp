@@ -21,10 +21,10 @@
 
     // tweakable parameters
 #define SAMPRATE        100e3       // Sampling rate (Hz)
-#define CARRIERFREQ     900.0e6     // Carrier frequency (Hz)
+#define CARRIERFREQ     100.0e6     // Carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock rate (Hz)
-#define TXGAIN0         60.0        // TX frontend gain, Ch 0 (dB)
-#define TXGAIN1         0.0         // TX frontend gain, Ch 1 (dB)
+#define TXGAIN0         40.0        // TX frontend gain, Ch 0 (dB)
+#define TXGAIN1         60.0        // TX frontend gain, Ch 1 (dB)
 #define RXGAIN          0.0         // RX frontend gain (dB)
 
     // Transmission parameters
@@ -39,8 +39,8 @@
 #define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       1e8         // Threshold of cross correlation pulse detection
-#define FLIP_SCALING    300         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       1e6         // Threshold of cross correlation pulse detection
+#define FLIP_SCALING    10          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
@@ -229,7 +229,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
 
                 // Compute abs^2 of xcorr divided by 4
-            normxcorr[i] = std::norm(CINT32(xcorr.real() >> 2,xcorr.imag() >> 2));
+            normxcorr[i] = std::norm(CINT32(xcorr.real() >> 3,xcorr.imag() >> 3));
 
             /** Save buffers if enabled by defines ********************/
                 // Save normxcorr if enabled by defined variables

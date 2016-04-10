@@ -10,9 +10,9 @@
 #include "includes.hpp"
 
     // tweakable parameters
-#define DURATION        1           // Length of time to record in seconds
+#define DURATION        3           // Length of time to record in seconds
 #define SAMPRATE        5e6         // sampling rate (Hz)
-#define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
+#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define RXGAIN          16.0        // Rx frontend gain in dB
 #define SPB             1000        // samples per buffer
@@ -72,8 +72,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     usrp_rx->set_rx_freq(tune_request,1);                                               // set the center frequency (Ch 1)
     usrp_rx->set_rx_gain(RXGAIN,0);                                                     // set the rf gain (Ch 0)
     usrp_rx->set_rx_gain(RXGAIN,1);                                                     // set the rf gain (Ch 1)
-    usrp_rx->set_rx_antenna(std::string("RX2"),0);                                      // set the antenna (Ch 0)
-    usrp_rx->set_rx_antenna(std::string("RX2"),1);                                      // set the antenna (Ch 1)
+    usrp_rx->set_rx_antenna(std::string("TX/RX"),0);                                      // set the antenna (Ch 0)
+    usrp_rx->set_rx_antenna(std::string("TX/RX"),1);                                      // set the antenna (Ch 1)
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));                         // allow for some setup time
 
         // check Ref and LO Lock detect for Rx

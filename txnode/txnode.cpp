@@ -21,7 +21,7 @@
 
     // tweakable parameters
 #define SAMPRATE        100e3       // sampling rate (Hz)
-#define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
+#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define TXGAIN          60.0        // Tx frontend gain in dB
 
