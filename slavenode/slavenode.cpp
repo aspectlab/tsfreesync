@@ -354,7 +354,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
             /** Delay estimator (Interpolator & Kalman filter) ****************/
                 // Calculate fractional offset
-            interp = ((FP32)(truemax.points[0]) - (FP32)(truemax.points[2]))/ \
+            interp = -((FP32)(truemax.points[0]) - (FP32)(truemax.points[2]))/ \
                      (2*((FP32)(truemax.points[0]) - 2*truemax.points[1] + (FP32)(truemax.points[2])));
 
             // std::cout << interp << ", " << std::flush;
@@ -387,9 +387,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // SPB will change with counter to be implemented
             // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, ((truemax.pos+interp+SPB)/2));
             if(buff_timer & 1){
-                Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 1+(truemax.pos+interp+SPB)/2);
+                Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 1.2+(truemax.pos+interp+SPB)/2);
             }else{
-                Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 1+(truemax.pos+interp)/2);
+                Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 1.2+(truemax.pos+interp)/2);
             }
 
                 // Exit calculating mode
