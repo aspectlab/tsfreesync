@@ -17,7 +17,7 @@
 
 #define WRITERX         1           // Enable writing RX buffer to file (binary)
 
-#define WRITEXCORR      1           // Write cross correlation to file (binary)
+#define WRITEXCORR      1           // Write normalized cross correlation to file (binary)
 
     // tweakable parameters
 #define SAMPRATE        100e3       // Sampling rate (Hz)

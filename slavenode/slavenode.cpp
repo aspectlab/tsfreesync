@@ -31,8 +31,8 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.9         // Gain for master clock time estimate
-#define KALGAIN2        0.00003     // Gain for master clock rate estimate
+#define KALGAIN1        0.8         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN2        0.00000001  // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
@@ -43,7 +43,7 @@
 #define SYNC_PERIOD     20          // Sync Period (# of buffers)
 
     // Sinc pulse amplitudes (integer)
-#define XCORR_AMP       128         // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
+#define XCORR_AMP       128         // Peak value of sinc pulse generated for cross correlation
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // Peak value of sinc pulse generated for synchronization (max 32768)
 
@@ -53,10 +53,10 @@ typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_
 
     // Structure for handling pulse detections
 typedef struct {
-            INT32U val;             // Maximum value detected pulse
             INT32U pos;             // Position of pulse within buffer
-            uhd::time_spec_t ts;    // The timestamp at the time of detection
-            INT32U points[3];       // Three points for interpolation
+            INT32U val;             // Maximum value detected pulse
+            INT32U left;            // Value to left of max
+            INT32U right;           // Value to right of max
         } MAXES;
 
 bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
@@ -102,13 +102,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     CINT32 xcorr;                                   // Cross correlation
     std::vector<INT32U> normxcorr(SPB);             // Normalized cross correlation
     INT32U normxcorr_last   = 0;                    // Saves the last element in normxcorr
-    std::vector<INT32U>::iterator p_normxcorrmax;   // Pointer to max element
     bool threshbroken = false;                      // Threhold detection
     bool calculate    = false;                      // Calculate delay trigger
 
         // Delay estimation variables
     MAXES max, prev_max, truemax;       // Xcorr max structures
-    FP32 interp = 0;                    // Position of peak
+    FP32 interp         = 0.0;          // Position of peak (in fractional samples)
+    FP32 clockoffset    = 0.0;          // Calculated offset of master to slave (in samples)
 
         // Kalmann filter variables
     FP32  crnt_master   = 0.0;          // Current time of master
@@ -117,11 +117,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32  rate_est      = 1.0;          // Rate estimate of master
     FP32  rate_pred     = 1.0;          // Rate prediction of master
     FP32  pred_error    = 0.0;          // Prediction error
-    INT32 buff_timer     = 0;            // Timer for time between transmitting and receiving a pulse
-
-        // Kalman tinker vars
-    FP32 time_est_tx    = 0.0;          // Time estimate of master at transmission
-    FP32 buff_timer_adj  = 0.0;          // Adjusted kalman time
+    INT32 buff_timer    = 0;            // Timer for time between transmitting and receiving a pulse
 
         // Counters
     INT16U ping_ctr     = 0;            // Counter for transmitting pulses
@@ -153,8 +149,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
     }
 
-    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 0.0);
-
     Sinc_Gen(&sync_sinc.front(), SYNC_AMP, BW, CBW, SPB, 0.0);
 
     /** Debug code for writing sinc pulse *************************************/
@@ -179,8 +173,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::tune_request_t tune_request(CARRIERFREQ);                               // validate tune request
     usrp_tx->set_tx_freq(tune_request,0);                                        // set the center frequency of chan0
     usrp_tx->set_tx_freq(tune_request,1);                                        // set the center frequency of chan1
-    usrp_tx->set_tx_gain(TXGAIN0,0);                                              // set the rf gain of chan0
-    usrp_tx->set_tx_gain(TXGAIN1,1);                                              // set the rf gain of chan1
+    usrp_tx->set_tx_gain(TXGAIN0,0);                                             // set the rf gain of chan0
+    usrp_tx->set_tx_gain(TXGAIN1,1);                                             // set the rf gain of chan1
     usrp_tx->set_tx_antenna("TX/RX",0);                                          // set the antenna of chan0
     usrp_tx->set_tx_antenna("TX/RX",1);                                          // set the antenna of chan1
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));                  // allow for some setup time
@@ -244,14 +238,18 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         /***********************************************************************
          * SEARCHING block - (cross correlating and pulse detection)
          **********************************************************************/
+            // Increment number of frames elapsed since last pulse was received from master
+        buff_timer++;
+
             // Remember current max values
         prev_max = max;
 
             // grab block of received samples from USRP
         rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx);
 
-        /** CROSS CORRELATION *************************************************/
-        for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i
+        /** CROSS CORRELATION, FIND PEAK ******************************************/
+        max.val = 0;
+        for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i, and keep track of largest
             xcorr = 0;
                 // Cross correlation for circular buffer
             if(rxbuff_ctr == 0){
@@ -271,6 +269,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // normxcorr[i] = (xcorr.real() >> 4)^2 + (xcorr.imag() >> 4)^2;
             normxcorr[i] = std::norm(CINT32(xcorr.real() >> 4,xcorr.imag() >> 4));
 
+            // Find max value of cross correlation and save its characteristics
+            if(normxcorr[i] > max.val){
+                max.val = normxcorr[i];         // Save max value
+                max.pos = i;                    // Save max position
+            }else{}
+
             /** Save buffers if enabled by defines ****************************/
                 // Save normxcorr if enabled by defined variables
             #if ((DEBUG != 0) && (WRITEXCORR != 0))
@@ -279,40 +283,27 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
         }
 
-            // Find max value of cross correlation and save its characteristics
-        max.ts   = md_rx.time_spec;             // Save the current rx time spec
-        max.val = 0;
-        for(i = 0; i < SPB; i++){
-            if(normxcorr[i] > max.val){
-                max.val = normxcorr[i];         // Save max value
-                max.pos = i;                    // Save max position
-            }else{}
+            // Find the points before and after the maximum for the interpolator
+            // Check for case when max.pos is on rightmost boundary
+        if(max.pos == SPB-1){
+            max.right = 0;                              // Sample after max get set later, so set to zero for now
+        }else{
+            max.right = normxcorr[max.pos+1];           // Save sample after max
         }
 
-            // Find the points before and after the maximum for the interpolator
-            // Case when max.pos is on rightmost boundary
-        if(max.pos == SPB-1){
-            max.points[0] = normxcorr[max.pos-1];           // Save sample before max
-            max.points[1] = normxcorr[max.pos];             // Save max
-            max.points[2] = 0;                              // Sample after max comes later
-        }else if(prev_max.pos == SPB-1){
-            prev_max.points[2] = normxcorr[0];              // Save sample after max
-        }else{}
-
-            // Case when max.pos is on leftmost boundary
+            // Check for case when max.pos is on leftmost boundary
         if(max.pos == 0){
-            max.points[0] = normxcorr_last;                 // normxcorr_last is now sample before max
-            max.points[1] = normxcorr[max.pos];             // Save max
-            max.points[2] = normxcorr[max.pos+1];           // Save sample after max
-        }else{}
-        normxcorr_last = normxcorr[SPB-1];                  // Save the last element of normxcorr
+            max.left = normxcorr_last;                  // normxcorr_last is now sample before max
+        }else{
+            max.left = normxcorr[max.pos-1];           // Save sample before max
+        }
+        normxcorr_last = normxcorr[SPB-1];              // Save the last element of normxcorr
 
-            // Case when max.pos is within boundaries
-        if( (max.pos != 0) && (max.pos != SPB-1) ){
-            max.points[0] = normxcorr[max.pos-1];           // Save sample before max
-            max.points[1] = normxcorr[max.pos];             // Save max
-            max.points[2] = normxcorr[max.pos+1];           // Save sample after max
-        }else{}
+            // If peak was on rightmost boundary in previous frame,
+            // value to right of max is first element in current frame
+        if(prev_max.pos == SPB-1){
+            prev_max.right = normxcorr[0];              // Save sample after max
+        }
 
             // Trigger calculation block after extra buffer
         if (threshbroken == true){
@@ -338,32 +329,42 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // the sinc and calculate its time
             if(prev_max.val > max.val){  // previous buffer had largest peak
                 truemax = prev_max;
-                buff_timer--;           // Decriment timer to correct it
-            }else if(max.val >= prev_max.val){
+                buff_timer--;           // decrement timer to correct it
+            }else{
                 truemax = max;
             }
 
-            // std::cout << boost::format("%i, %i, %i") % truemax.points[0] % truemax.points[1] % truemax.points[2] << std::endl;
+            // std::cout << boost::format("%i, %i, %i") % truemax.left % truemax.val % truemax.right << std::endl;
             if (!rx_expected){
                 std::cout << "Unexpected pulse received" << std::endl;
                 rx_extra++;
             }else{}
             rx_expected = false;
-                // Display info on the terminal
-            std::cout << boost::format("Ping RX Time %10.5f | Pos %3i | Timer %4i") % (truemax.ts.get_full_secs() + truemax.ts.get_frac_secs()) % truemax.pos % buff_timer << std::flush;
 
             /** Delay estimator (Interpolator & Kalman filter) ****************/
                 // Calculate fractional offset
-            interp = -((FP32)(truemax.points[0]) - (FP32)(truemax.points[2]))/ \
-                     (2*((FP32)(truemax.points[0]) - 2*truemax.points[1] + (FP32)(truemax.points[2])));
+            interp = ((FP32)(truemax.left) - (FP32)(truemax.right))/ \
+                     (2*((FP32)(truemax.left) - 2*truemax.val + (FP32)(truemax.right)));
 
-            // std::cout << interp << ", " << std::flush;
+            // actual roundtrip time is buff_time*SPB+(truemax.pos-999)+interp.  Divided by 2, and modulo 1000, this becomes --
+            if(buff_timer & 1){
+                clockoffset = (truemax.pos+interp+1)/2;
+            }else{
+                clockoffset = (truemax.pos+interp+1+SPB)/2;
+            }
 
-            std::cout << boost::format(" | Interp %f") % interp << std::endl;
+            // TOTAL HACK THAT NEEDS TO ULTIMATELY BE REMOVED / FIXED
+            if(buff_timer == 6){
+                clockoffset = (truemax.pos+interp+1)/2;
+            }else{
+            }
+
+            // Display info on the terminal
+            std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % truemax.pos % buff_timer % interp << std::endl;
+            std::cout << boost::format("Offset %f") % clockoffset << std::endl;
 
                 // Kalman Filter
-            // buff_timer_adj = buff_timer - (truemax.pos+interp)/2;
-            crnt_master = (buff_timer) * rate_est;
+            crnt_master = (clockoffset) * rate_est;
             pred_error  = crnt_master - time_pred;
 
             while(pred_error >= (SPB/2)){
@@ -378,32 +379,20 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             rate_est  = rate_pred + KALGAIN2 * pred_error;
 
                 // Update Predictions
-            time_pred = time_est + rate_est * SPB;
+            time_pred = time_est + (rate_est - 1) * SPB;
             rate_pred = rate_est;
 
             std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
 
-            /** Delay Adjustment **/
-                // SPB will change with counter to be implemented
-            // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, ((truemax.pos+interp+SPB)/2));
-            if(buff_timer & 1){
-                Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 1.2+(truemax.pos+interp+SPB)/2);
-            }else{
-                Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 1.2+(truemax.pos+interp)/2);
-            }
-
                 // Exit calculating mode
             calculate = false;
 
-            // When there is no pulse received, the kalman filter updates the sinc pulse.
+            // When there is no pulse received, the update KF using predicted values
         }else{
             // std::cout << boost::format("I Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
             time_est  = time_pred;
             rate_est  = rate_pred;
-            time_pred = time_est + rate_est * SPB;
-                // Update the sinc pulse
-            // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, ((truemax.pos+interp+SPB)/2));
-            // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_pred*53-time_pred*53);
+            time_pred = time_est + (rate_est - 1) * SPB;
         }
 
         /***********************************************************************
@@ -411,8 +400,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
          **********************************************************************/
             // Set time spec to be one buffer ahead in time
         md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
-
-        buff_timer++;
 
             // Sync channel TX
         if (ping_ctr == SYNC_PERIOD-1) {
@@ -432,13 +419,15 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }else{}
 
             buff_timer = -TXDELAY;
-            // buff_timer = 0;
-            time_est_tx = time_est;
 
         } else {
             txbuffs[0] = &zero.front();
             ping_ctr++;
         }
+
+            // Generate appropriately delayed sinc pulse
+    //    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, clockoffset);  // avoids use of KF output
+        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_est + TXDELAY * (rate_est - 1) * SPB);  // uses KF output.
 
             // Debug Channel TX
         txbuffs[1] = &dbug_sinc.front();
