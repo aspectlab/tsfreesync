@@ -1,7 +1,8 @@
 /*******************************************************************************
  * includes.hpp - Master includes file
  *
- * Mitchell Overdick 9/15/15
+ * M.Overdick
+ * Last Major Revision: 5/12/2016
  ******************************************************************************/
 
 #ifndef INCLUDES_HPP    // Prevents including file twice
@@ -43,6 +44,7 @@
  ******************************************************************************/
 #include "sinc.hpp"                         // Sinc pulse generator
 #include "writebuff.hpp"                    // Writes buffer to file
+#include "checklo.hpp"                      // Checks LO Lock status
 
 
 

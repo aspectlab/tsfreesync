@@ -1,18 +1,19 @@
 /***********************************************************************
  * writebuff.hpp - Writes a buffer to a file
- * 
+ *
  * ARGUMENTS:
- * 
+ *
  * fname    -   String for filename, "./fname.dat" places file in
  *              working directory of terminal, not relative to program
  *              directory.
- * 
+ *
  * *pbuff   -   A pointer to the first element of the buffer to be
  *              written.
- * 
+ *
  * size     -   The size of the buffer (in number of entries).
  * 
- * Mitchell Overdick 9/15/15
+ * M.Overdick, J.Canfield
+ * Last Major Revision: 9/15/15
  **********************************************************************/
 
 #include "includes.hpp"
@@ -32,7 +33,7 @@ void writebuff_INT32U(
     if (outfile.is_open()){
         outfile.write((const char*)pbuff, size*sizeof(INT32U));
     }else{}
-        
+
     if (outfile.is_open()){
         outfile.close();
     }else{}
@@ -49,7 +50,7 @@ void writebuff_CINT16(
     if (outfile.is_open()){
         outfile.write((const char*)pbuff, size*sizeof(CINT16));
     }else{}
-        
+
     if (outfile.is_open()){
         outfile.close();
     }else{}

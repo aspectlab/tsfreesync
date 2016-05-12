@@ -1,17 +1,14 @@
-/***********************************************************************
- * two_tx_test.cpp
+/*******************************************************************************
+ * txnode.cpp
  *
- * Sends out sinc pulses on two channels.
+ * Sends out sinc pulses on two channels. Equipped with various configurations
+ * for testing the functionality of the USRP.
  *
- * VERSION 12.10.15:1 -- initial version by A.G.Klein / M.Overdick
- *
- **********************************************************************/
+ * M.Overdick, A.G.Klein, and J.Canfield
+ * Last Major Revision: 5/12/2016
+ ******************************************************************************/
 
 #include "includes.hpp"
-
-#define CH0_DELAY       0.0         // Delay for channel 0 (TRX-A)
-
-#define CH1_DELAY       1.5         // Delay for channel 1 (TRX-B)
 
     // Compliation parameters
 #define DEBUG           1           // Debug (binary) if 1, debug code compiled
@@ -19,26 +16,38 @@
 #define WRITESINC       1           // Write Sinc (binary) if 1, template sinc pulse
                                     // is written to file "./sinc.dat"
 
-    // tweakable parameters
+    // Radio Parameters
 #define SAMPRATE        100e3       // sampling rate (Hz)
 #define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define TXGAIN          60.0        // Tx frontend gain in dB
 
+    // DSP Parameters
 #define SPB             1000        // samples per buffer
 #define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
 #define BW              0.1         // normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // normalized freq offset of sinc pulse (1 --> Nyquist)
-#define PULSE_PERIOD    1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
+
+    // Pulse Transmission Parameters
+#define CLKRT           4.0190e-4   // Experimentally derived clock rate offset
+
+#define CLKRT_ENABLE    1           // Enable clock rate compensation  (binary)
+
+#define CH0_ENABLE      1           // Enable CH0 pulse transmission
+                                    // 0 - Send only 0s, 1 - send pulses at CH0_PERIOD
+
+#define CH1_ENABLE      1           // Enable CH1 pulse transmission
+                                    // 0 - Send only 0s, 1 - send pulses at CH1_PERIOD
+
+#define CH0_DELAY       0.0         // Delay for channel 0 (TRX-A)
+
+#define CH1_DELAY       0.0         // Delay for channel 1 (TRX-B)
+
+#define CH0_PERIOD      1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
+#define CH1_PERIOD      20          // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that:
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
-
-#define THRESHOLD       1e7         // Threshold of cross correlation
-
-typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
-
-bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
 
 /***********************************************************************
  * Signal handlers
@@ -57,28 +66,23 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     /** Variable Declarations *****************************************/
 
         // create sinc and zero
-    std::vector< CINT16 >   sinc1(SPB);                 // stores precomputed sinc pulse debug clock            (adjusted)
-    std::vector< CINT16 >   sinc0(SPB);                 // stores precomputed sinc pulse ping to master         (constant)
-    std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
-    std::vector< CINT16 *>  txbuffs(2);                 // pointer to facilitate 2-chan transmission
-
-        // Correlation variables
-    std::vector<CINT32> xcorr(SPB);                 // Cross correlation
-    std::vector<INT32U> normxcorr(SPB);             // Normalized cross correlation
-    std::vector<INT32U>::iterator p_normxcorrmax;   // Pointer to max element
-    bool threshbroken = false;                      // Threhold detection
-    bool calculate    = false;                      // Calculate delay trigger
+    std::vector< CINT16 >   sinc1(SPB);         // stores sinc pulse for CH0
+    std::vector< CINT16 >   sinc0(SPB);         // stores sinc pulse for CH1
+    std::vector< CINT16 >   zero(SPB, (0,0));   // stores all zeros for TX
+    std::vector< CINT16 *>  txbuffs(2);         // pointer to facilitate 2-chan transmission
 
         // Counters
-    INT16U pulse_ctr    = 0;            // Counter for transmitting pulses
-    INT16U i,j,k;                       // Generic counters
+    INT16U ch0_ctr  = 0;            // Counter for transmitting pulses on CH0
+    INT16U ch1_ctr  = 0;            // Counter for transmitting pulses on CH1
+    FP32 ch0_clkos  = CH0_DELAY;    // Initial clock offset of CH0
+    FP32 ch1_clkos  = CH1_DELAY;    // Initial clock offset of CH1
 
     /** Debugging vars ************************************************/
 
     /** Variable Initializations **************************************/
 
-    Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, CH0_DELAY);
-    Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, CH1_DELAY);
+    Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, ch0_clkos);
+    Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, ch1_clkos);
 
     /** Debug code for writing sinc pulse *****************************/
 
@@ -134,7 +138,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // report stuff to user (things which may differ from what was requested)
     std::cout << boost::format("Actual TX Rate: %f Msps...") % (usrp_tx->get_tx_rate()/1e6) << std::endl;
-    std::cout << boost::format("Actual time between pulses: %f sec...") % (PULSE_PERIOD*SPB/SAMPRATE) << std::endl;
+    std::cout << boost::format("Actual time between pulses CH 0 %f sec...") % (CH0_PERIOD*SPB/SAMPRATE) << std::endl;
+    std::cout << boost::format("Actual time between pulses CH 1: %f sec...") % (CH1_PERIOD*SPB/SAMPRATE) << std::endl;
     std::cout << boost::format("CH 0 Delay: %f Samples...") % (CH0_DELAY) << std::endl;
     std::cout << boost::format("CH 1 Delay: %f Samples...") % (CH1_DELAY) << std::endl << std::endl;
 
@@ -142,31 +147,61 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::signal(SIGINT, &sig_int_handler);
     std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
 
-    md_tx.time_spec = usrp_tx->get_time_now();
+    //md_tx.time_spec = usrp_tx->get_time_now();
+    md_tx.time_spec = usrp_tx->get_time_now()+uhd::time_spec_t(2*SPB/SAMPRATE);
+
+    #if (CH0_ENABLE)
+        txbuffs[0] = &zero.front();
+    #endif /* #if (CH0_ENABLE) */
+
+    #if (CH1_ENABLE)
+        txbuffs[1] = &zero.front();
+    #endif /* #if (CH0_ENABLE) */
 
     while(not stop_signal_called){
-        /***************************************************************
-         * TRANSMITTING block - Transmits debug signal and "ping"
-         **************************************************************/
                 // Set time spec to be one buffer ahead in time
-            md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
+            //md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
+    //        md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t(SPB/SAMPRATE);
 
-                // Debug Channel TX
-            if (pulse_ctr == PULSE_PERIOD-1) {
+            // CH0 TX
+        #if (CH0_ENABLE)
+            #if (CLKRT_ENABLE)
+                ch0_clkos = ch0_clkos+CLKRT;    // Compensate for clock offset to achieve flat segments
+            #endif /* #if (CLKRT != 0) */
+
+                // Generate new sinc pulse for CH0
+            Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, ch0_clkos);
+
+            if (ch0_ctr == CH0_PERIOD-1) {
                 txbuffs[0] = &sinc0.front();
-                txbuffs[1] = &sinc1.front();
-                pulse_ctr = 0;
+                ch0_ctr = 0;
             } else {
                 txbuffs[0] = &zero.front();
-                txbuffs[1] = &zero.front();
-                pulse_ctr++;
+                ch0_ctr++;
             }
+        #endif /* #if (CH0_ENABLE) */
 
-                // Transmit both buffers
-            tx_stream->send(txbuffs, SPB, md_tx);
-            md_tx.start_of_burst = false;
-            md_tx.has_time_spec = true;
+            // CH1 TX
+        #if (CH1_ENABLE)
+            #if (CLKRT_ENABLE)
+                ch1_clkos = ch1_clkos+CLKRT;    // Compensate for clock offset to achieve flat segments
+            #endif /* #if (CLKRT != 0) */
 
+                // Generate new sinc pulse for CH1
+            Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, ch1_clkos);
+
+            if (ch1_ctr == CH1_PERIOD-1) {
+                txbuffs[1] = &sinc1.front();
+                ch1_ctr = 0;
+            } else {
+                txbuffs[1] = &zero.front();
+                ch1_ctr++;
+            }
+        #endif /* #if (CH0_ENABLE) */
+
+            // Transmit both buffers
+        tx_stream->send(txbuffs, SPB, md_tx);
+        md_tx.start_of_burst = false;
 
     }   /** while(not stop_signal_called) *****************************/
 
@@ -177,42 +212,3 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     return EXIT_SUCCESS;
 }   /** main() ********************************************************/
-
-bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, FP64 setup_time){
-    if (std::find(sensor_names.begin(), sensor_names.end(), sensor_name) == sensor_names.end())
-        return false;
-
-    boost::system_time start = boost::get_system_time();
-    boost::system_time first_lock_time;
-
-    std::cout << boost::format("Waiting for \"%s\": ") % sensor_name;
-    std::cout.flush();
-
-    while (true) {
-        if ((not first_lock_time.is_not_a_date_time()) and
-                (boost::get_system_time() > (first_lock_time + boost::posix_time::seconds(setup_time))))
-        {
-            std::cout << " locked." << std::endl;
-            break;
-        }
-        if (get_sensor_fn(sensor_name).to_bool()){
-            if (first_lock_time.is_not_a_date_time())
-                first_lock_time = boost::get_system_time();
-            std::cout << "+";
-            std::cout.flush();
-        }
-        else {
-            first_lock_time = boost::system_time();	// reset to 'not a date time'
-
-            if (boost::get_system_time() > (start + boost::posix_time::seconds(setup_time))){
-                std::cout << std::endl;
-                throw std::runtime_error(str(boost::format("timed out waiting for consecutive locks on sensor \"%s\"") % sensor_name));
-            }
-            std::cout << "_";
-            std::cout.flush();
-        }
-        boost::this_thread::sleep(boost::posix_time::milliseconds(100));
-    }
-    std::cout << std::endl;
-    return true;
-}

@@ -1,11 +1,10 @@
 /*******************************************************************************
  * slavenode.cpp
  *
- * This source file implements the "slave" node in the timestamp free
- * protocol. This can synchronize with the master within one sample of
- * accuracy. Code is in place for fine delay estimate, but is not
- * implemented in this version
+ * This source file implements the "slave" node in the timestamp free protocol.
  *
+ * M.Overdick, A.G.Klein, and J.Canfield
+ * Last Major Revision: 5/12/2016
  ******************************************************************************/
 
 #include "includes.hpp"
@@ -31,8 +30,8 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.8         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-#define KALGAIN2        0.00000001  // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+#define KALGAIN1        1         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN2        0.0000000  // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
@@ -47,9 +46,7 @@
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       1e5         // Threshold of cross correlation pulse detection
-
-typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
+#define THRESHOLD       1e4         // Threshold of cross correlation pulse detection
 
     // Structure for handling pulse detections
 typedef struct {
@@ -58,8 +55,6 @@ typedef struct {
             INT32U left;            // Value to left of max
             INT32U right;           // Value to right of max
         } MAXES;
-
-bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
 
 /*******************************************************************************
  * Signal handlers
@@ -325,6 +320,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
          * CALCULATING block - Finds delay and synchronizes
          **********************************************************************/
         if(calculate == true){
+            std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
                 // Figure out which element is the actual peak of
                 // the sinc and calculate its time
             if(prev_max.val > max.val){  // previous buffer had largest peak
@@ -354,7 +350,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
 
             // TOTAL HACK THAT NEEDS TO ULTIMATELY BE REMOVED / FIXED
-            if(buff_timer == 6){
+            if(buff_timer <= 6){
                 clockoffset = (truemax.pos+interp+1)/2;
             }else{
             }
@@ -426,6 +422,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }
 
             // Generate appropriately delayed sinc pulse
+       clockoffset=clockoffset+4.26e-4-3.545e-5; // Experimentally derived offset, produces flat segments of 20 samples
+//+1.79767e-5;
     //    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, clockoffset);  // avoids use of KF output
         Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_est + TXDELAY * (rate_est - 1) * SPB);  // uses KF output.
 
@@ -483,42 +481,3 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     return EXIT_SUCCESS;
 }   /** main() ****************************************************************/
-
-bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, FP64 setup_time){
-    if (std::find(sensor_names.begin(), sensor_names.end(), sensor_name) == sensor_names.end())
-        return false;
-
-    boost::system_time start = boost::get_system_time();
-    boost::system_time first_lock_time;
-
-    std::cout << boost::format("Waiting for \"%s\": ") % sensor_name;
-    std::cout.flush();
-
-    while (true) {
-        if ((not first_lock_time.is_not_a_date_time()) and
-                (boost::get_system_time() > (first_lock_time + boost::posix_time::seconds(setup_time))))
-        {
-            std::cout << " locked." << std::endl;
-            break;
-        }
-        if (get_sensor_fn(sensor_name).to_bool()){
-            if (first_lock_time.is_not_a_date_time())
-                first_lock_time = boost::get_system_time();
-            std::cout << "+";
-            std::cout.flush();
-        }
-        else {
-            first_lock_time = boost::system_time();	// reset to 'not a date time'
-
-            if (boost::get_system_time() > (start + boost::posix_time::seconds(setup_time))){
-                std::cout << std::endl;
-                throw std::runtime_error(str(boost::format("timed out waiting for consecutive locks on sensor \"%s\"") % sensor_name));
-            }
-            std::cout << "_";
-            std::cout.flush();
-        }
-        boost::this_thread::sleep(boost::posix_time::milliseconds(100));
-    }
-    std::cout << std::endl;
-    return true;
-}

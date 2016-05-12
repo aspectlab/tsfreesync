@@ -1,7 +1,8 @@
 /*******************************************************************************
  * types.hpp - Holds a table of intuitive type definitions
  *
- * Mitchell Overdick 9/14/2015
+ * M.Overdick
+ * Last Major Revision: 9/14/2015
  ******************************************************************************/
 
 #include "includes.hpp"

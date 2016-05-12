@@ -1,11 +1,13 @@
-/***********************************************************************
+/*******************************************************************************
  * sinc.hpp - Modulated sinc pulse generator.
  *
  * This source file is based on Ettus Research's wavetable.hpp.
  * This header file generates a modulated sinc pulse that is zero-padded
  * and stored into a vector.
  *
- **********************************************************************/
+ * M.Overdick, A.G.Klein, and J.Canfield
+ * Last Major Revision: 5/12/2016
+ ******************************************************************************/
 
 #include "includes.hpp"
 #include <math.h>
@@ -63,8 +65,6 @@ void Sinc_Gen(CINT16 * table, INT16U ampl, FP32 bw, FP32 cbw, INT16U spb, FP32 t
             table[i] = CINT16(ampl, 0.0);
         }
     }
-
-
 }
 
 #else

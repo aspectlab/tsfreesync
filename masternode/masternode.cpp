@@ -1,11 +1,11 @@
-/**************************************************************************
-* masternode.cpp
-*
-* This source file implements the "master" node in the timestamp free
-* protocol. It uses a rudimentary energy detector to detect the
-* presence of a pulse, and then plays it back in reverse.
-*
-**************************************************************************/
+/*******************************************************************************
+ * masternode.cpp
+ *
+ * This source file implements the "master" node in the timestamp free protocol.
+ *
+ * M.Overdick, A.G.Klein, and J.Canfield
+ * Last Major Revision: 5/12/2016
+ ******************************************************************************/
 
 #include "includes.hpp"
 
@@ -42,9 +42,6 @@
 #define THRESHOLD       1e6         // Threshold of cross correlation pulse detection
 #define FLIP_SCALING    10          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
-typedef boost::function<uhd::sensor_value_t (const std::string&)> get_sensor_fn_t;
-bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time);
-
 typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
 
 /**************************************************************************
@@ -80,6 +77,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
     std::vector< CINT16 >   dbug_sinc(SPB);             // stores precomputed sinc pulse for Tx
     std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
+    std::vector< CINT16 >   zero2(SPB, (0,0));           // stores all zeros for Tx
     std::vector< CINT16 >   flipbuff(3*SPB);            // stores flipped received signals for Tx
     std::vector< CINT16 *>  flipbuffs(3);               // stores flipped received signals for Tx
     std::vector< CINT16 *>  txbuffs(2);                 // pointer to facilitate 2-chan transmission
@@ -196,7 +194,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // setup receive streaming
     uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
     stream_cmd.stream_now = false;
-    stream_cmd.time_spec = uhd::time_spec_t(0.25)+usrp_rx->get_time_now();  // tell USRP to start streaming 0.25 seconds in the future
+    uhd::time_spec_t starttime = uhd::time_spec_t(0.25)+usrp_rx->get_time_now();
+    stream_cmd.time_spec = starttime;  // tell USRP to start streaming 0.25 seconds in the future
     rx_stream->issue_stream_cmd(stream_cmd);
 
         // grab initial block of received samples from USRP with nice long timeout (gets discarded)
@@ -261,7 +260,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 for (j = 0; j < SPB; j++) {
                     flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                 }
-                txbuffs[0] = flipbuffs[0];
+                //txbuffs[0] = flipbuffs[0];
+                txbuffs[0] = &xcorr_sinc.front();
                 state = FLIP2;
                 break;
 
@@ -270,7 +270,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                     flipbuffs[1][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
 
                 }
-                txbuffs[0] = flipbuffs[1];
+                //txbuffs[0] = flipbuffs[1];
+                txbuffs[0] = &xcorr_sinc.front();
                 state = TRANSMIT;
             break;
 
@@ -279,7 +280,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             break;
 
             default: // state 3 -- transmit flipped first segment
-                txbuffs[0] = flipbuffs[2];
+                //txbuffs[0] = flipbuffs[2];
+                txbuffs[0] = &xcorr_sinc.front();
                 state = SEARCHING;
             break;
         }
@@ -350,42 +352,3 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     return EXIT_SUCCESS;
 }   /** main() ****************************************************************/
-
-bool check_locked_sensor(std::vector<std::string> sensor_names, const char* sensor_name, get_sensor_fn_t get_sensor_fn, double setup_time){
-    if (std::find(sensor_names.begin(), sensor_names.end(), sensor_name) == sensor_names.end())
-    return false;
-
-    boost::system_time start = boost::get_system_time();
-    boost::system_time first_lock_time;
-
-    std::cout << boost::format("Waiting for \"%s\": ") % sensor_name;
-    std::cout.flush();
-
-    while (true) {
-        if ((not first_lock_time.is_not_a_date_time()) and
-        (boost::get_system_time() > (first_lock_time + boost::posix_time::seconds(setup_time))))
-        {
-            std::cout << " locked." << std::endl;
-            break;
-        }
-        if (get_sensor_fn(sensor_name).to_bool()){
-            if (first_lock_time.is_not_a_date_time())
-            first_lock_time = boost::get_system_time();
-            std::cout << "+";
-            std::cout.flush();
-        }
-        else {
-            first_lock_time = boost::system_time();	// reset to 'not a date time'
-
-            if (boost::get_system_time() > (start + boost::posix_time::seconds(setup_time))){
-                std::cout << std::endl;
-                throw std::runtime_error(str(boost::format("timed out waiting for consecutive locks on sensor \"%s\"") % sensor_name));
-            }
-            std::cout << "_";
-            std::cout.flush();
-        }
-        boost::this_thread::sleep(boost::posix_time::milliseconds(100));
-    }
-    std::cout << std::endl;
-    return true;
-}
