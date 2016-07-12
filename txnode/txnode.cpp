@@ -14,7 +14,7 @@
 #define DEBUG           1           // Debug (binary) if 1, debug code compiled
 
 #define WRITESINC       1           // Write Sinc (binary) if 1, template sinc pulse
-                                    // is written to file "./sinc.dat"
+                                    // is written to file "./sincX.dat"
 
     // Radio Parameters
 #define SAMPRATE        100e3       // sampling rate (Hz)
@@ -22,13 +22,12 @@
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define TXGAIN          60.0        // Tx frontend gain in dB
 
-    // DSP Parameters
+    // Transmission Parameters
 #define SPB             1000        // samples per buffer
 #define TXDELAY         3           // buffers in the future that we schedule transmissions (must be odd)
 #define BW              0.1         // normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // normalized freq offset of sinc pulse (1 --> Nyquist)
 
-    // Pulse Transmission Parameters
 #define CLKRT           4.0190e-4   // Experimentally derived clock rate offset
 
 #define CLKRT_ENABLE    1           // Enable clock rate compensation  (binary)
@@ -43,27 +42,31 @@
 
 #define CH1_DELAY       0.0         // Delay for channel 1 (TRX-B)
 
+#define CH0_AMPLITUDE   30000       // Peak value of sinc pulse generated for debug channel (max 32768)
+
+#define CH1_AMPLITUDE   30000       // Peak value of sinc pulse generated for debug channel (max 32768)
+
 #define CH0_PERIOD      1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
 #define CH1_PERIOD      20          // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
     // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that:
     //           + PULSE_LENGTH/BW is an integer
     //           + 2*PULSE_LENGTH/BW <= SPB
 
-/***********************************************************************
+/*******************************************************************************
  * Signal handlers
- **********************************************************************/
+ ******************************************************************************/
 static bool stop_signal_called = false;
 void sig_int_handler(int){stop_signal_called = true;}
 
-/***********************************************************************
+/*******************************************************************************
  * Main function
- **********************************************************************/
+ ******************************************************************************/
 int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
 
-    /** Constant Decalartions *****************************************/
+    /** Constant Decalartions *************************************************/
 
-    /** Variable Declarations *****************************************/
+    /** Variable Declarations *************************************************/
 
         // create sinc and zero
     std::vector< CINT16 >   sinc1(SPB);         // stores sinc pulse for CH0
@@ -77,14 +80,14 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32 ch0_clkos  = CH0_DELAY;    // Initial clock offset of CH0
     FP32 ch1_clkos  = CH1_DELAY;    // Initial clock offset of CH1
 
-    /** Debugging vars ************************************************/
+    /** Debugging vars ********************************************************/
 
-    /** Variable Initializations **************************************/
+    /** Variable Initializations **********************************************/
 
-    Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, ch0_clkos);
-    Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, ch1_clkos);
+    Sinc_Gen(&sinc0.front(), CH0_AMPLITUDE, BW, CBW, SPB, ch0_clkos);
+    Sinc_Gen(&sinc1.front(), CH0_AMPLITUDE, BW, CBW, SPB, ch1_clkos);
 
-    /** Debug code for writing sinc pulse *****************************/
+    /** Debug code for writing sinc pulse *************************************/
 
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
@@ -100,7 +103,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
 
-    /** Main code *****************************************************/
+    /** Main code *************************************************************/
 
         // create a USRP Tx device
     uhd::usrp::multi_usrp::sptr usrp_tx = uhd::usrp::multi_usrp::make(std::string(""));
@@ -159,9 +162,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     #endif /* #if (CH0_ENABLE) */
 
     while(not stop_signal_called){
-                // Set time spec to be one buffer ahead in time
-            //md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
-    //        md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t(SPB/SAMPRATE);
+            // Set time spec to be one buffer ahead in time
+        // md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
+        md_tx.time_spec = md_tx.time_spec+uhd::time_spec_t(SPB/SAMPRATE);
+
 
             // CH0 TX
         #if (CH0_ENABLE)
@@ -170,7 +174,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             #endif /* #if (CLKRT != 0) */
 
                 // Generate new sinc pulse for CH0
-            Sinc_Gen(&sinc0.front(), 30000, BW, CBW, SPB, ch0_clkos);
+            Sinc_Gen(&sinc0.front(), CH0_AMPLITUDE, BW, CBW, SPB, ch0_clkos);
 
             if (ch0_ctr == CH0_PERIOD-1) {
                 txbuffs[0] = &sinc0.front();
@@ -188,7 +192,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             #endif /* #if (CLKRT != 0) */
 
                 // Generate new sinc pulse for CH1
-            Sinc_Gen(&sinc1.front(), 30000, BW, CBW, SPB, ch1_clkos);
+            Sinc_Gen(&sinc1.front(), CH0_AMPLITUDE, BW, CBW, SPB, ch1_clkos);
 
             if (ch1_ctr == CH1_PERIOD-1) {
                 txbuffs[1] = &sinc1.front();
@@ -203,7 +207,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         tx_stream->send(txbuffs, SPB, md_tx);
         md_tx.start_of_burst = false;
 
-    }   /** while(not stop_signal_called) *****************************/
+    }   /** while(not stop_signal_called) *************************************/
 
         // send a mini EOB packet
     md_tx.end_of_burst = true;
@@ -211,4 +215,4 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));
 
     return EXIT_SUCCESS;
-}   /** main() ********************************************************/
+}   /** main() ****************************************************************/

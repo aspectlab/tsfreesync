@@ -22,18 +22,18 @@ t=(0:length(dat0)-1)'/fs;
 %% plot results
 figure(1);
 subplot(211);
-plot(t,real(dat0),t,imag(dat0));
+plot(t,real(dat0),'LineWidth',2,t,imag(dat0),'LineWidth',2);
 title('Channel 0');
 legend('I channel','Q channel');
 grid on;
 xlabel('time (seconds)');
 
 subplot(212);
-plot(t,real(dat1),t,imag(dat1));
+plot(t,real(dat1),'LineWidth',2,t,imag(dat1),'LineWidth',2);
 title('Channel 1');
 legend('I channel','Q channel');
 grid on;
 xlabel('time (seconds)');
 
 figure(2);
-plot(t,real(dat0),t,imag(dat0),t,real(dat1),t,imag(dat1));
+plot(t,real(dat0),'LineWidth',2,t,imag(dat0),'LineWidth',2,t,real(dat1),'LineWidth',2,t,imag(dat1),'LineWidth',2);

@@ -23,15 +23,16 @@
 
     // Radio Parameters
 #define SAMPRATE        100e3       // Sampling Rate (Hz)
-#define CARRIERFREQ     100.0e6     // Carrier Frequency (Hz)
+#define CARRIERFREQ     900.0e6     // Carrier Frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock Rate (Hz)
-#define TXGAIN0         60.0        // TX frontend gain, Ch 0 (dB)
+#define TXGAIN0         50.0        // TX frontend gain, Ch 0 (dB)
 #define TXGAIN1         60.0        // TX frontend gain, Ch 1 (dB)
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        1         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-#define KALGAIN2        0.0000000  // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+#define KALGAIN1        0.9998      // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN2        0.000001    // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+#define CLKRT           4.064677564680136e-04       // Clockrate offset estimate
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
@@ -39,14 +40,14 @@
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
 #define BW              0.1         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
-#define SYNC_PERIOD     20          // Sync Period (# of buffers)
+#define SYNC_PERIOD     30          // Sync Period (# of buffers)
 
     // Sinc pulse amplitudes (integer)
 #define XCORR_AMP       128         // Peak value of sinc pulse generated for cross correlation
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       1e4         // Threshold of cross correlation pulse detection
+#define THRESHOLD       1e5         // Threshold of cross correlation pulse detection
 
     // Structure for handling pulse detections
 typedef struct {
@@ -118,11 +119,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT16U ping_ctr     = 0;            // Counter for transmitting pulses
     INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
-    bool   rx_expected  = false;        // Checks whether a returned pulse is expected
-    INT32  rx_missing   = 0;            // Counts number of pulses that failed to receive
-    INT32  rx_extra     = 0;            // Counts number of pulses that were not expected
-    INT32  nping_sent   = 0;            // Number of pings sent
-
+    // INT16U tmp_timer    = 0;            // Temporary, don't worry about it
 
     /** Debugging vars ********************************************************/
 
@@ -145,6 +142,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     }
 
     Sinc_Gen(&sync_sinc.front(), SYNC_AMP, BW, CBW, SPB, 0.0);
+    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 0.0);
 
     /** Debug code for writing sinc pulse *************************************/
 
@@ -178,7 +176,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string(""));   // create a usrp device
     usrp_rx->set_master_clock_rate(CLOCKRATE);                                            // set clock rate
     usrp_rx->set_clock_source(std::string("internal"));                                   // lock mboard clocks
-    usrp_rx->set_rx_subdev_spec(std::string("A:A"));                                      // select the subdevice
+    usrp_rx->set_rx_subdev_spec(std::string("A:B"));                                      // select the subdevice
     usrp_rx->set_rx_rate(SAMPRATE,0);                                                     // set the sample rate
     usrp_rx->set_rx_freq(tune_request,0);                                                 // set the center frequency
     usrp_rx->set_rx_gain(RXGAIN,0);                                                       // set the rf gain
@@ -242,7 +240,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // grab block of received samples from USRP
         rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx);
 
-        /** CROSS CORRELATION, FIND PEAK ******************************************/
+        /** CROSS CORRELATION, FIND PEAK **************************************/
         max.val = 0;
         for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i, and keep track of largest
             xcorr = 0;
@@ -320,7 +318,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
          * CALCULATING block - Finds delay and synchronizes
          **********************************************************************/
         if(calculate == true){
-            std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
+        // std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
                 // Figure out which element is the actual peak of
                 // the sinc and calculate its time
             if(prev_max.val > max.val){  // previous buffer had largest peak
@@ -331,11 +329,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
 
             // std::cout << boost::format("%i, %i, %i") % truemax.left % truemax.val % truemax.right << std::endl;
-            if (!rx_expected){
-                std::cout << "Unexpected pulse received" << std::endl;
-                rx_extra++;
-            }else{}
-            rx_expected = false;
 
             /** Delay estimator (Interpolator & Kalman filter) ****************/
                 // Calculate fractional offset
@@ -356,8 +349,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
 
             // Display info on the terminal
-            std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % truemax.pos % buff_timer % interp << std::endl;
-            std::cout << boost::format("Offset %f") % clockoffset << std::endl;
+            // std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % truemax.pos % buff_timer % interp << std::endl;
+            // std::cout << boost::format("Offset %f") % clockoffset << std::endl;
 
                 // Kalman Filter
             crnt_master = (clockoffset) * rate_est;
@@ -378,7 +371,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             time_pred = time_est + (rate_est - 1) * SPB;
             rate_pred = rate_est;
 
-            std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
+            // std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
 
                 // Exit calculating mode
             calculate = false;
@@ -397,21 +390,24 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Set time spec to be one buffer ahead in time
         md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
 
+        // if(tmp_timer == 12000){
+        //     ping_ctr = 0;
+        // }else if(tmp_timer < 12000){
+        //     tmp_timer++;
+        //     if(tmp_timer == 12000){
+        //         std::cout << "Bueno!" << std::endl;
+        //     }else{}
+        // }else{
+        //     std::cout << "PROBLEM" << std::endl;
+        // }
+
             // Sync channel TX
         if (ping_ctr == SYNC_PERIOD-1) {
-
-            if (rx_expected){
-                std::cout << "Expected pulse not received" << std::endl << std::endl;
-                rx_missing++;
-            }else{}
-
             txbuffs[0] = &sync_sinc.front();
             ping_ctr = 0;
 
             if(ping_ctr == 0){
-                std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
-                nping_sent++;
-                rx_expected = true;
+                // std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
             }else{}
 
             buff_timer = -TXDELAY;
@@ -422,8 +418,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }
 
             // Generate appropriately delayed sinc pulse
-       clockoffset=clockoffset+4.26e-4-3.545e-5; // Experimentally derived offset, produces flat segments of 20 samples
-//+1.79767e-5;
+    //    clockoffset = clockoffset + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
     //    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, clockoffset);  // avoids use of KF output
         Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_est + TXDELAY * (rate_est - 1) * SPB);  // uses KF output.
 
@@ -433,7 +428,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Transmit both buffers
         tx_stream->send(txbuffs, SPB, md_tx);
         md_tx.start_of_burst = false;
-        md_tx.has_time_spec = true;
+        // md_tx.has_time_spec = true;
 
         /** Write buffers to file and exit program ****************************/
         #if ((DEBUG != 0) && (WRITERX != 0))
@@ -467,13 +462,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         #endif /* ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0))) */
 
     }   /** while(not stop_signal_called) *************************************/
-
-    std::cout << "Transmission Statistics:" << std::endl;
-    std::cout << "    Total Number of Pulses Sent: " << nping_sent << std::endl;
-    std::cout << "    Total Pulses Missed: " << rx_missing << " Total Extra Pulses: " << rx_extra << " Total Errors: " << (rx_missing+rx_extra) << std::endl;
-    std::cout <<  boost::format("    Percent Loss: %5.2f") % (100*FP32(rx_missing)/nping_sent) << std::endl;
-    std::cout <<  boost::format("    Percent Extras: %5.2f") % (100*FP32(rx_extra)/nping_sent) << std::endl;
-
         // send a mini EOB packet
     md_tx.end_of_burst = true;
     tx_stream->send("", 0, md_tx);

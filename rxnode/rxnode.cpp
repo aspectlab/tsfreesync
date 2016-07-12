@@ -12,27 +12,27 @@
     // tweakable parameters
 #define DURATION        5           // Length of time to record in seconds
 #define SAMPRATE        5e6         // sampling rate (Hz)
-#define CARRIERFREQ     100.0e6     // carrier frequency (Hz)
+#define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define RXGAIN          16.0        // Rx frontend gain in dB
 #define SPB             1000        // samples per buffer
 
-/***********************************************************************
+/*******************************************************************************
  * Signal handlers
- **********************************************************************/
+ ******************************************************************************/
 static bool stop_signal_called = false;
 void sig_int_handler(int){stop_signal_called = true;}
 
-/***********************************************************************
+/*******************************************************************************
  * Main function
- **********************************************************************/
+ ******************************************************************************/
 int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
 
-    /** Constant Decalartions *****************************************/
+    /** Constant Decalartions *************************************************/
     const INT32U time = DURATION*(SAMPRATE/SPB);
 
-    /** Variable Declarations *****************************************/
+    /** Variable Declarations *************************************************/
 
     // (circular) receive buffers
     std::vector< CINT16 >   ch0_rxbuff(time*SPB);   // Ch 0 is RX2-A
@@ -48,13 +48,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT16U i = 0,j = 0,k = 0;               // Generic counters
     INT32U rx_ctr = 0;                      // Counts loops through main while()
 
-    /** Variable Initializations **************************************/
+    /** Variable Initializations **********************************************/
     // Initialise rxbuffs (Vector of pointers)
     for(i = 0; i < time; i++){
         rxbuffs[i][0] = &ch0_rxbuff.front() + SPB * i;
         rxbuffs[i][1] = &ch1_rxbuff.front() + SPB * i;
     }
-    /** Main code *****************************************************/
+    /** Main code *************************************************************/
 
         // set USRP Rx params
     uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string("")); // create a usrp device
@@ -115,7 +115,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Report progress to terminal
         std::cout << boost::format("\r\t%2i Percent Complete") % (rx_ctr*100/time) << std::flush;
 
-    }   /** while(not stop_signal_called) *****************************/
+    }   /** while(not stop_signal_called) *************************************/
 
         // Report progress to terminal
     std::cout << "\r\tdone!               " << std::endl << std::endl;
@@ -133,4 +133,4 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
 
     return EXIT_SUCCESS;
-}   /** main() ********************************************************/
+}   /** main() ****************************************************************/

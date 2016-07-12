@@ -9,6 +9,7 @@
 
 #include "includes.hpp"
 
+    // Compilation Parameters
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
 #define DURATION        5           // Duration of recording (s)
@@ -19,15 +20,15 @@
 
 #define WRITEXCORR      1           // Write normalized cross correlation to file (binary)
 
-    // tweakable parameters
+    // Radio Parameters
 #define SAMPRATE        100e3       // Sampling rate (Hz)
-#define CARRIERFREQ     100.0e6     // Carrier frequency (Hz)
+#define CARRIERFREQ     900.0e6     // Carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock rate (Hz)
-#define TXGAIN0         40.0        // TX frontend gain, Ch 0 (dB)
+#define TXGAIN0         60.0        // TX frontend gain, Ch 0 (dB)
 #define TXGAIN1         60.0        // TX frontend gain, Ch 1 (dB)
 #define RXGAIN          0.0         // RX frontend gain (dB)
 
-    // Transmission parameters
+    // Transmission Parameters
 #define SPB             1000        // Samples Per Buffer
 #define NRXBUFFS        3           // Number of receive buffers (circular)
 #define TXDELAY         3           // Buffers in the future that we schedule transmissions (must be odd)
@@ -44,19 +45,19 @@
 
 typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
 
-/**************************************************************************
+/*******************************************************************************
 * Signal handlers
-**************************************************************************/
+*******************************************************************************/
 static bool stop_signal_called = false;
 void sig_int_handler(int){stop_signal_called = true;}
 
-/**************************************************************************
+/*******************************************************************************
 * Main function
-**************************************************************************/
+*******************************************************************************/
 int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::set_thread_priority_safe();
 
-    /** Variable Declarations ********************************************/
+    /** Variable Declarations *************************************************/
         // Counter for writting large buffers
     #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
         INT16U write_ctr = 0;
@@ -99,7 +100,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
 
 
-    /** Variable Initializations *****************************************/
+    /** Variable Initializations **********************************************/
         // Initialise rxbuffs (Vector of pointers)
     for(i = 0; i < NUMRXBUFFS; i++){
         rxbuffs[i] = &rxbuff.front() + SPB * i;
@@ -117,7 +118,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     Sinc_Gen(&dbug_sinc.front(),DBSINC_AMP, BW, CBW, SPB, 0.0);
 
-    /** Debug code for writing sinc pulse ********************************/
+    /** Debug code for writing sinc pulse *************************************/
 
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
@@ -128,7 +129,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
 
-    /** Code *************************************************************/
+    /** Code ******************************************************************/
 
         // create a USRP Tx device
     uhd::usrp::multi_usrp::sptr usrp_tx = uhd::usrp::multi_usrp::make(std::string(""));
@@ -149,7 +150,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string(""));   // create a usrp device
     usrp_rx->set_master_clock_rate(CLOCKRATE);                                            // set clock rate
     usrp_rx->set_clock_source(std::string("internal"));                                   // lock mboard clocks
-    usrp_rx->set_rx_subdev_spec(std::string("A:A"));                                      // select the subdevice
+    usrp_rx->set_rx_subdev_spec(std::string("A:B"));                                      // select the subdevice
     usrp_rx->set_rx_rate(SAMPRATE,0);                                                     // set the sample rate
     usrp_rx->set_rx_freq(tune_request,0);                                                 // set the center frequency
     usrp_rx->set_rx_gain(RXGAIN,0);                                                       // set the rf gain
@@ -230,7 +231,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Compute abs^2 of xcorr divided by 4
             normxcorr[i] = std::norm(CINT32(xcorr.real() >> 3,xcorr.imag() >> 3));
 
-            /** Save buffers if enabled by defines ********************/
+            /** Save buffers if enabled by defines ****************************/
                 // Save normxcorr if enabled by defined variables
             #if ((DEBUG != 0) && (WRITEXCORR != 0))
                 normxcorr_write[(SPB*write_ctr)+i] = normxcorr[i];
@@ -260,8 +261,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 for (j = 0; j < SPB; j++) {
                     flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                 }
-                //txbuffs[0] = flipbuffs[0];
-                txbuffs[0] = &xcorr_sinc.front();
+                txbuffs[0] = flipbuffs[0];
+                // txbuffs[0] = &xcorr_sinc.front();
                 state = FLIP2;
                 break;
 
@@ -270,8 +271,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                     flipbuffs[1][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
 
                 }
-                //txbuffs[0] = flipbuffs[1];
-                txbuffs[0] = &xcorr_sinc.front();
+                txbuffs[0] = flipbuffs[1];
+                // txbuffs[0] = &xcorr_sinc.front();
                 state = TRANSMIT;
             break;
 
@@ -280,8 +281,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             break;
 
             default: // state 3 -- transmit flipped first segment
-                //txbuffs[0] = flipbuffs[2];
-                txbuffs[0] = &xcorr_sinc.front();
+                txbuffs[0] = flipbuffs[2];
+                // txbuffs[0] = &xcorr_sinc.front();
                 state = SEARCHING;
             break;
         }
