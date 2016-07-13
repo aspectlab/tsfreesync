@@ -10,16 +10,18 @@
 #include "includes.hpp"
 
     // Compliation parameters
-#define DEBUG           0           // Debug (binary) if 1, debug code compiled
+#define DEBUG           1           // Debug (binary) if 1, debug code compiled
 
-#define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
+#define WRITESINC       0           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        5           // Length of time to record in seconds
+#define DURATION        20          // Length of time to record in seconds
 
-#define WRITEXCORR      1           // Write cross correlation to file (binary)
+#define WRITEXCORR      0           // Write cross correlation to file (binary)
 
-#define WRITERX         1           // Write receive buffer to file (binary)
+#define WRITERX         0           // Write receive buffer to file (binary)
+
+#define WRITEKAL        1
 
     // Radio Parameters
 #define SAMPRATE        100e3       // Sampling Rate (Hz)
@@ -30,9 +32,9 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.9998      // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-#define KALGAIN2        0.000001    // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
-#define CLKRT           4.064677564680136e-04       // Clockrate offset estimate
+#define KALGAIN1        0.99999     // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN2        0.00001     // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+#define CLKRT           4.024135155630892e-04   // Clockrate estimate
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
@@ -40,14 +42,14 @@
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
 #define BW              0.1         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
-#define SYNC_PERIOD     30          // Sync Period (# of buffers)
+#define SYNC_PERIOD     10          // Sync Period (# of buffers, 6 is safe minimum)
 
     // Sinc pulse amplitudes (integer)
 #define XCORR_AMP       128         // Peak value of sinc pulse generated for cross correlation
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       1e5         // Threshold of cross correlation pulse detection
+#define THRESHOLD       2e5         // Threshold of cross correlation pulse detection
 
     // Structure for handling pulse detections
 typedef struct {
@@ -71,7 +73,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     /** Constant Decalartions *************************************************/
         // When recording, time specifies the number of buffers to record
-    #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
+    #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)||(WRITEKAL != 0)))
         INT16U write_ctr = 0;
         const INT32U time = DURATION*(SAMPRATE/SPB);
     #else
@@ -105,8 +107,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     MAXES max, prev_max, truemax;       // Xcorr max structures
     FP32 interp         = 0.0;          // Position of peak (in fractional samples)
     FP32 clockoffset    = 0.0;          // Calculated offset of master to slave (in samples)
+    FP32 clkrt_ctr      = 0.0;          // Calculated clockrate (manually set)
 
-        // Kalmann filter variables
+        // Kalman filter variables
     FP32  crnt_master   = 0.0;          // Current time of master
     FP32  time_est      = 0.0;          // Time estimate of master
     FP32  time_pred     = 0.0;          // Time prediction of master
@@ -115,11 +118,23 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     FP32  pred_error    = 0.0;          // Prediction error
     INT32 buff_timer    = 0;            // Timer for time between transmitting and receiving a pulse
 
+    #if ((DEBUG != 0) && (WRITEKAL != 0))
+            // Kalman filter variables
+        std::vector< FP32 > clockoffset_rec(time);  // stores clockoffset
+        std::vector< FP32 > crnt_master_rec(time);  // stores crnt_master
+        std::vector< FP32 > pred_error_rec(time);   // stores pred_error
+
+        std::vector< FP32 > time_est_rec(time);     // stores time_est
+        std::vector< FP32 > rate_est_rec(time);     // stores rate_est
+        std::vector< FP32 > time_pred_rec(time);    // stores time_pred
+        std::vector< FP32 > rate_pred_rec(time);    // stores rate_pred
+    #else
+    #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
+
         // Counters
     INT16U ping_ctr     = 0;            // Counter for transmitting pulses
     INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
-    // INT16U tmp_timer    = 0;            // Temporary, don't worry about it
 
     /** Debugging vars ********************************************************/
 
@@ -318,7 +333,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
          * CALCULATING block - Finds delay and synchronizes
          **********************************************************************/
         if(calculate == true){
-        // std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
+        std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
                 // Figure out which element is the actual peak of
                 // the sinc and calculate its time
             if(prev_max.val > max.val){  // previous buffer had largest peak
@@ -349,8 +364,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             }
 
             // Display info on the terminal
-            // std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % truemax.pos % buff_timer % interp << std::endl;
-            // std::cout << boost::format("Offset %f") % clockoffset << std::endl;
+            std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % truemax.pos % buff_timer % interp << std::endl;
+            std::cout << boost::format("Offset %f") % clockoffset << std::endl;
 
                 // Kalman Filter
             crnt_master = (clockoffset) * rate_est;
@@ -371,7 +386,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             time_pred = time_est + (rate_est - 1) * SPB;
             rate_pred = rate_est;
 
-            // std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
+            std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
 
                 // Exit calculating mode
             calculate = false;
@@ -390,24 +405,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Set time spec to be one buffer ahead in time
         md_tx.time_spec = md_rx.time_spec + uhd::time_spec_t((TXDELAY+1)*(SPB)/SAMPRATE);
 
-        // if(tmp_timer == 12000){
-        //     ping_ctr = 0;
-        // }else if(tmp_timer < 12000){
-        //     tmp_timer++;
-        //     if(tmp_timer == 12000){
-        //         std::cout << "Bueno!" << std::endl;
-        //     }else{}
-        // }else{
-        //     std::cout << "PROBLEM" << std::endl;
-        // }
-
             // Sync channel TX
         if (ping_ctr == SYNC_PERIOD-1) {
             txbuffs[0] = &sync_sinc.front();
             ping_ctr = 0;
 
             if(ping_ctr == 0){
-                // std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
+                std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
             }else{}
 
             buff_timer = -TXDELAY;
@@ -418,8 +422,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }
 
             // Generate appropriately delayed sinc pulse
-    //    clockoffset = clockoffset + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
-    //    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, clockoffset);  // avoids use of KF output
+        // clkrt_ctr = clkrt_ctr + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
+        // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, clkrt_ctr);  // avoids use of KF output
         Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_est + TXDELAY * (rate_est - 1) * SPB);  // uses KF output.
 
             // Debug Channel TX
@@ -428,40 +432,89 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Transmit both buffers
         tx_stream->send(txbuffs, SPB, md_tx);
         md_tx.start_of_burst = false;
-        // md_tx.has_time_spec = true;
 
-        /** Write buffers to file and exit program ****************************/
-        #if ((DEBUG != 0) && (WRITERX != 0))
-            if(write_ctr >= time){
-                std::cout << "Writing rx buffer to file..." << std::flush;
-                writebuff_CINT16("./rx.dat", rxbuffs[0], SPB*time);
-                std::cout << "done!" << std::endl;
+        /** Copy Kalman variables *********************************************/
+        #if ((DEBUG != 0) && (WRITEKAL != 0))
+            clockoffset_rec[write_ctr]  =   clockoffset;    // stores clockoffset
+            crnt_master_rec[write_ctr]  =   crnt_master;    // stores crnt_master
+            pred_error_rec[write_ctr]   =   pred_error;     // stores pred_error
 
-                #if (WRITEXCORR == 0)
-                    break;
-                #else
-                #endif /* #if (WRITEXCORR == 0) */
-
-            }else{}
+            time_est_rec[write_ctr]     =   time_est;       // stores time_est
+            rate_est_rec[write_ctr]     =   rate_est;       // stores rate_est
+            time_pred_rec[write_ctr]    =   time_pred;      // stores time_pred
+            rate_pred_rec[write_ctr]    =   rate_pred;      // stores rate_pred
         #else
-        #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+        #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
 
-        #if ((DEBUG != 0) && (WRITEXCORR != 0))
+        /** Exit program to write buffers  ************************************/
+        #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)||(WRITEKAL != 0)))
             if(write_ctr >= time){
-                std::cout << "Writing normalized correlation to file..." << std::flush;
-                writebuff_INT32U("./xcorr.dat", &normxcorr_write.front(), SPB*time);
-                std::cout << "done!" << std::endl;
                 break;
-            }else{}
+            }else{
+                write_ctr++;
+            }
         #else
-        #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
-
-        #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
-            write_ctr++;
-        #else
-        #endif /* ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0))) */
-
+        #endif /* #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)||(WRITEKAL != 0))) */
     }   /** while(not stop_signal_called) *************************************/
+
+    /** Write buffers *****************************************************/
+    #if ((DEBUG != 0) && (WRITERX != 0))
+        std::cout << "Writing rx buffer to file..." << std::flush;
+        writebuff_CINT16("./rx.dat", rxbuffs[0], SPB*time);
+        std::cout << "done!" << std::endl;
+    #else
+    #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+
+    #if ((DEBUG != 0) && (WRITEXCORR != 0))
+        std::cout << "Writing normalized correlation to file..." << std::flush;
+        writebuff_INT32U("./xcorr.dat", &normxcorr_write.front(), SPB*time);
+        std::cout << "done!" << std::endl;
+    #else
+    #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
+
+    clockoffset_rec[write_ctr]  =   clockoffset;    // stores clockoffset
+    crnt_master_rec[write_ctr]  =   crnt_master;    // stores crnt_master
+    pred_error_rec[write_ctr]   =   pred_error;     // stores pred_error
+
+    time_est_rec[write_ctr]     =   time_est;       // stores time_est
+    rate_est_rec[write_ctr]     =   rate_est;       // stores rate_est
+    time_pred_rec[write_ctr]    =   time_pred;      // stores time_pred
+    rate_pred_rec[write_ctr]    =   rate_pred;      // stores rate_pred
+
+    #if ((DEBUG != 0) && (WRITEKAL != 0))
+        std::cout << "Writing clockoffset to file..." << std::flush;
+        writebuff_FP32("./clockoffset.dat", &clockoffset_rec.front(), time);
+        std::cout << "done!" << std::endl;
+
+        std::cout << "Writing crnt_master to file..." << std::flush;
+        writebuff_FP32("./crnt_master.dat", &crnt_master_rec.front(), time);
+        std::cout << "done!" << std::endl;
+
+        std::cout << "Writing pred_error to file..." << std::flush;
+        writebuff_FP32("./pred_error.dat", &pred_error_rec.front(), time);
+        std::cout << "done!" << std::endl;
+
+
+
+        std::cout << "Writing time_est to file..." << std::flush;
+        writebuff_FP32("./time_est.dat", &time_est_rec.front(), time);
+        std::cout << "done!" << std::endl;
+
+        std::cout << "Writing rate_est to file..." << std::flush;
+        writebuff_FP32("./rate_est.dat", &rate_est_rec.front(), time);
+        std::cout << "done!" << std::endl;
+
+        std::cout << "Writing time_pred to file..." << std::flush;
+        writebuff_FP32("./time_pred.dat", &time_pred_rec.front(), time);
+        std::cout << "done!" << std::endl;
+
+        std::cout << "Writing rate_pred to file..." << std::flush;
+        writebuff_FP32("./rate_pred.dat", &rate_pred_rec.front(), time);
+        std::cout << "done!" << std::endl;
+    #else
+    #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
+
+
         // send a mini EOB packet
     md_tx.end_of_burst = true;
     tx_stream->send("", 0, md_tx);

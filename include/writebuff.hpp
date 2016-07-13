@@ -11,9 +11,9 @@
  *              written.
  *
  * size     -   The size of the buffer (in number of entries).
- * 
+ *
  * M.Overdick, J.Canfield
- * Last Major Revision: 9/15/15
+ * Last Major Revision: 7/13/16
  **********************************************************************/
 
 #include "includes.hpp"
@@ -49,6 +49,23 @@ void writebuff_CINT16(
 
     if (outfile.is_open()){
         outfile.write((const char*)pbuff, size*sizeof(CINT16));
+    }else{}
+
+    if (outfile.is_open()){
+        outfile.close();
+    }else{}
+}
+
+void writebuff_FP32(
+    const char* fname,
+    FP32 *pbuff,
+    int size
+){
+    std::ofstream outfile;
+    outfile.open(fname, std::ofstream::binary);
+
+    if (outfile.is_open()){
+        outfile.write((const char*)pbuff, size*sizeof(FP32));
     }else{}
 
     if (outfile.is_open()){
