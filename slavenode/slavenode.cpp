@@ -15,11 +15,11 @@
 #define WRITESINC       0           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        20          // Length of time to record in seconds
+#define DURATION        60          // Length of time to record in seconds
 
 #define WRITEXCORR      0           // Write cross correlation to file (binary)
 
-#define WRITERX         0           // Write receive buffer to file (binary)
+#define WRITERX         1           // Write receive buffer to file (binary)
 
 #define WRITEKAL        1
 
@@ -32,8 +32,10 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.99999     // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-#define KALGAIN2        0.00001     // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+// #define KALGAIN1        0.99999     // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+// #define KALGAIN2        0.00001     // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+#define KALGAIN1        1.0             // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN2        0.0             // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
 #define CLKRT           4.024135155630892e-04   // Clockrate estimate
 
     // Transmission parameters
@@ -41,10 +43,11 @@
 #define NRXBUFFS        3           // Number of Receive Buffers (circular)
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
 #define BW              0.1         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
-#define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
+#define CBW             0.0         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
 #define SYNC_PERIOD     10          // Sync Period (# of buffers, 6 is safe minimum)
 
     // Sinc pulse amplitudes (integer)
+#define SINC_PRECISION  1e-9        // Precision of pre-generated sinc pulse (in s)
 #define XCORR_AMP       128         // Peak value of sinc pulse generated for cross correlation
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        30000       // Peak value of sinc pulse generated for synchronization (max 32768)
@@ -53,8 +56,8 @@
 
     // Structure for handling pulse detections
 typedef struct {
-            INT32U pos;             // Position of pulse within buffer
-            INT32U val;             // Maximum value detected pulse
+            INT32U center_pos;      // Position of pulse within buffer
+            INT32U center;          // Maximum value detected pulse
             INT32U left;            // Value to left of max
             INT32U right;           // Value to right of max
         } MAXES;
@@ -104,10 +107,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     bool calculate    = false;                      // Calculate delay trigger
 
         // Delay estimation variables
-    MAXES max, prev_max, truemax;       // Xcorr max structures
-    FP32 interp         = 0.0;          // Position of peak (in fractional samples)
-    FP32 clockoffset    = 0.0;          // Calculated offset of master to slave (in samples)
-    FP32 clkrt_ctr      = 0.0;          // Calculated clockrate (manually set)
+    MAXES crnt_max, prev_max, exact_max;    // Xcorr max structures
+    FP32 interp         = 0.0;              // Position of peak (in fractional samples)
+    FP32 clockoffset    = 0.0;              // Calculated offset of master to slave (in samples)
+    FP32 clkrt_ctr      = 0.0;              // Calculated clockrate (manually set)
 
         // Kalman filter variables
     FP32  crnt_master   = 0.0;          // Current time of master
@@ -128,6 +131,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         std::vector< FP32 > rate_est_rec(time);     // stores rate_est
         std::vector< FP32 > time_pred_rec(time);    // stores time_pred
         std::vector< FP32 > rate_pred_rec(time);    // stores rate_pred
+
+        std::vector< FP32 > interp_rec(time);    // stores interp
     #else
     #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
 
@@ -151,19 +156,21 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         rxbuffs[i] = &rxbuff.front() + SPB * i;
     }
 
-    Sinc_Gen(&xcorr_sinc.front(),XCORR_AMP, BW, CBW, SPB, 0.0);
+    Sinc_Init(BW, CBW, SPB, SINC_PRECISION, SAMPRATE);
+
+    // Sinc_Gen(&xcorr_sinc.front(),XCORR_AMP, BW, CBW, SPB, 0.0);
     for (j = 0; j < SPB; j++){
         xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
     }
 
-    Sinc_Gen(&sync_sinc.front(), SYNC_AMP, BW, CBW, SPB, 0.0);
-    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 0.0);
+    // Sinc_Gen(&sync_sinc.front(), SYNC_AMP, BW, CBW, SPB, 0.0);
+    // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, 0.0);
 
     /** Debug code for writing sinc pulse *************************************/
 
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
-        std::cout << "Writing debug and xcorr Sinc to file..." << std::flush;
+        // std::cout << "Writing debug and xcorr Sinc to file..." << std::flush;
         writebuff_CINT16("./xcorr_sinc.dat", &xcorr_sinc.front(), SPB);
         writebuff_CINT16("./dbug_sinc.dat", &dbug_sinc.front(), SPB);
         std::cout << "done!" << std::endl;
@@ -250,13 +257,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         buff_timer++;
 
             // Remember current max values
-        prev_max = max;
+        prev_max = crnt_max;
 
             // grab block of received samples from USRP
         rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx);
 
         /** CROSS CORRELATION, FIND PEAK **************************************/
-        max.val = 0;
+        crnt_max.center = 0;
         for (i = 0; i < SPB; i++) { // compute abs()^2 of cross-correlation at each lag i, and keep track of largest
             xcorr = 0;
                 // Cross correlation for circular buffer
@@ -278,9 +285,9 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             normxcorr[i] = std::norm(CINT32(xcorr.real() >> 4,xcorr.imag() >> 4));
 
             // Find max value of cross correlation and save its characteristics
-            if(normxcorr[i] > max.val){
-                max.val = normxcorr[i];         // Save max value
-                max.pos = i;                    // Save max position
+            if(normxcorr[i] > crnt_max.center){
+                crnt_max.center = normxcorr[i];          // Save crnt_max value
+                crnt_max.center_pos = i;                 // Save crnt_max position
             }else{}
 
             /** Save buffers if enabled by defines ****************************/
@@ -292,24 +299,24 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }
 
             // Find the points before and after the maximum for the interpolator
-            // Check for case when max.pos is on rightmost boundary
-        if(max.pos == SPB-1){
-            max.right = 0;                              // Sample after max get set later, so set to zero for now
+            // Check for case when crnt_max.center_pos is on rightmost boundary
+        if(crnt_max.center_pos == SPB-1){
+            crnt_max.right = 0;                              // Sample after max get set later, so set to zero for now
         }else{
-            max.right = normxcorr[max.pos+1];           // Save sample after max
+            crnt_max.right = normxcorr[crnt_max.center_pos+1];    // Save sample after max
         }
 
-            // Check for case when max.pos is on leftmost boundary
-        if(max.pos == 0){
-            max.left = normxcorr_last;                  // normxcorr_last is now sample before max
+            // Check for case when crnt_max.center_pos is on leftmost boundary
+        if(crnt_max.center_pos == 0){
+            crnt_max.left = normxcorr_last;                  // normxcorr_last is now sample before max
         }else{
-            max.left = normxcorr[max.pos-1];           // Save sample before max
+            crnt_max.left = normxcorr[crnt_max.center_pos-1];     // Save sample before max
         }
         normxcorr_last = normxcorr[SPB-1];              // Save the last element of normxcorr
 
             // If peak was on rightmost boundary in previous frame,
             // value to right of max is first element in current frame
-        if(prev_max.pos == SPB-1){
+        if(prev_max.center_pos == SPB-1){
             prev_max.right = normxcorr[0];              // Save sample after max
         }
 
@@ -319,7 +326,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             threshbroken = false;
 
             // Receive and correlate one extra buffer
-        }else if (max.val >= THRESHOLD){
+        }else if (crnt_max.center >= THRESHOLD){
             threshbroken = true;
         }else{}
 
@@ -333,39 +340,39 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
          * CALCULATING block - Finds delay and synchronizes
          **********************************************************************/
         if(calculate == true){
-        std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
+        // std::cout << boost::format("Ping RX Time %10.5f") % (md_rx.time_spec.get_full_secs() + md_rx.time_spec.get_frac_secs()) << std::endl;
                 // Figure out which element is the actual peak of
                 // the sinc and calculate its time
-            if(prev_max.val > max.val){  // previous buffer had largest peak
-                truemax = prev_max;
+            if(prev_max.center > crnt_max.center){  // previous buffer had largest peak
+                exact_max = prev_max;
                 buff_timer--;           // decrement timer to correct it
             }else{
-                truemax = max;
+                exact_max = crnt_max;
             }
 
-            // std::cout << boost::format("%i, %i, %i") % truemax.left % truemax.val % truemax.right << std::endl;
+            // std::cout << boost::format("%i, %i, %i") % exact_max.left % exact_max.center % exact_max.right << std::endl;
 
             /** Delay estimator (Interpolator & Kalman filter) ****************/
                 // Calculate fractional offset
-            interp = ((FP32)(truemax.left) - (FP32)(truemax.right))/ \
-                     (2*((FP32)(truemax.left) - 2*truemax.val + (FP32)(truemax.right)));
+            interp = ((FP32)(exact_max.left) - (FP32)(exact_max.right))/ \
+                     (2*((FP32)(exact_max.left) - 2*exact_max.center + (FP32)(exact_max.right)));
 
-            // actual roundtrip time is buff_time*SPB+(truemax.pos-999)+interp.  Divided by 2, and modulo 1000, this becomes --
+            // actual roundtrip time is buff_time*SPB+(exact_max.center_pos-999)+interp.  Divided by 2, and modulo 1000, this becomes --
             if(buff_timer & 1){
-                clockoffset = (truemax.pos+interp+1)/2;
+                clockoffset = (exact_max.center_pos+interp+1)/2;
             }else{
-                clockoffset = (truemax.pos+interp+1+SPB)/2;
+                clockoffset = (exact_max.center_pos+interp+1+SPB)/2;
             }
 
-            // TOTAL HACK THAT NEEDS TO ULTIMATELY BE REMOVED / FIXED
-            if(buff_timer <= 6){
-                clockoffset = (truemax.pos+interp+1)/2;
-            }else{
-            }
+            // // TOTAL HACK THAT NEEDS TO ULTIMATELY BE REMOVED / FIXED
+            // if(buff_timer <= 6){
+            //     clockoffset = (exact_max.center_pos+interp+1)/2;
+            // }else{
+            // }
 
             // Display info on the terminal
-            std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % truemax.pos % buff_timer % interp << std::endl;
-            std::cout << boost::format("Offset %f") % clockoffset << std::endl;
+            // std::cout << boost::format("Pos %3i | Timer %4i | Interp %f") % exact_max.center_pos % buff_timer % interp << std::endl;
+            // std::cout << boost::format("Offset %f") % clockoffset << std::endl;
 
                 // Kalman Filter
             crnt_master = (clockoffset) * rate_est;
@@ -386,7 +393,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             time_pred = time_est + (rate_est - 1) * SPB;
             rate_pred = rate_est;
 
-            std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
+            // std::cout << boost::format("R Kalman Est.: Time=%f Rate=%f Pred.: Time=%f Rate=%f ERR=%f") % time_est % rate_est % time_pred % rate_pred% pred_error << std::endl << std::endl;
 
                 // Exit calculating mode
             calculate = false;
@@ -411,7 +418,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             ping_ctr = 0;
 
             if(ping_ctr == 0){
-                std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
+                // std::cout << boost::format("Ping TX Time %10.5f") % (md_tx.time_spec.get_full_secs() + md_tx.time_spec.get_frac_secs()) << std::endl;
             }else{}
 
             buff_timer = -TXDELAY;
@@ -424,7 +431,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Generate appropriately delayed sinc pulse
         // clkrt_ctr = clkrt_ctr + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, clkrt_ctr);  // avoids use of KF output
-        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_est + TXDELAY * (rate_est - 1) * SPB);  // uses KF output.
+        // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, BW, CBW, SPB, time_est + TXDELAY * (rate_est - 1) * SPB);  // uses KF output.
 
             // Debug Channel TX
         txbuffs[1] = &dbug_sinc.front();
@@ -443,6 +450,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             rate_est_rec[write_ctr]     =   rate_est;       // stores rate_est
             time_pred_rec[write_ctr]    =   time_pred;      // stores time_pred
             rate_pred_rec[write_ctr]    =   rate_pred;      // stores rate_pred
+
+            interp_rec[write_ctr]       = interp;           // stores interp
         #else
         #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
 
@@ -492,7 +501,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         std::cout << "Writing pred_error to file..." << std::flush;
         writebuff_FP32("./pred_error.dat", &pred_error_rec.front(), time);
-        std::cout << "done!" << std::endl;
+        std::cout << "done!" << std::endl << std::endl;
 
 
 
@@ -510,6 +519,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         std::cout << "Writing rate_pred to file..." << std::flush;
         writebuff_FP32("./rate_pred.dat", &rate_pred_rec.front(), time);
+        std::cout << "done!" << std::endl << std::endl;
+
+
+
+        std::cout << "Writing interp to file..." << std::flush;
+        writebuff_FP32("./interp.dat", &interp_rec.front(), time);
         std::cout << "done!" << std::endl;
     #else
     #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
