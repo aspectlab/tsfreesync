@@ -12,7 +12,7 @@
     // Compilation Parameters
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define DURATION        5           // Duration of recording (s)
+#define DURATION        10           // Duration of recording (s)
 
 #define WRITESINC       1           // Write template sinc pulses (binary)
 
@@ -24,7 +24,7 @@
 #define SAMPRATE        100e3       // Sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // Carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock rate (Hz)
-#define TXGAIN0         60.0        // TX frontend gain, Ch 0 (dB)
+#define TXGAIN0         50.0        // TX frontend gain, Ch 0 (dB)
 #define TXGAIN1         60.0        // TX frontend gain, Ch 1 (dB)
 #define RXGAIN          0.0         // RX frontend gain (dB)
 
@@ -37,11 +37,12 @@
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
 
     // Sinc pulse amplitudes (integer)
+#define SINC_PRECISION  1e-9        // Precision of pre-generated sinc pulse (in s)
 #define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       1e6         // Threshold of cross correlation pulse detection
-#define FLIP_SCALING    10          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       1e8         // Threshold of cross correlation pulse detection
+#define FLIP_SCALING    50          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
 
@@ -71,7 +72,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     #else
         #define NUMRXBUFFS NRXBUFFS
     #endif /* ((DEBUG != 0) && (WRITERX != 0)) */
-
 
         // create sinc, zero, and receive buffers
     std::vector< INT32U >   normxcorr(SPB);             // Normalized cross correlation
@@ -111,12 +111,14 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         flipbuffs[i] = &flipbuff.front() + SPB * i;
     }
 
-    Sinc_Gen(&xcorr_sinc.front(),XCORR_AMP, BW, CBW, SPB, 0.0);
+    Sinc_Init(BW, CBW, SPB, SINC_PRECISION, SAMPRATE);
+
+    Sinc_Gen(&xcorr_sinc.front(), XCORR_AMP, SPB, 0.0);
     for (j = 0; j < SPB; j++){
         xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
     }
 
-    Sinc_Gen(&dbug_sinc.front(),DBSINC_AMP, BW, CBW, SPB, 0.0);
+    Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB, 0.0);
 
     /** Debug code for writing sinc pulse *************************************/
 

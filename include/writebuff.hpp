@@ -2,7 +2,7 @@
  * writebuff.hpp - Writes a buffer to a file
  *
  * M.Overdick, J.Canfield
- * Last Major Revision: 7/14/16
+ * Last Major Revision: 7/19/16
  **********************************************************************/
 
 
@@ -20,6 +20,13 @@ void writebuff_INT32U(
 void writebuff_CINT16(
     const char* fname,      // A string for the filename
     CINT16 *pbuff,          // A pointer to the first element
+    int size                // Length of the buffer
+);
+
+// Writes a buffer filled with complex 16 bit integers to file
+void writebuff_INT64U(
+    const char* fname,      // A string for the filename
+    INT64U *pbuff,          // A pointer to the first element
     int size                // Length of the buffer
 );
 

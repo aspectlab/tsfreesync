@@ -1,7 +1,6 @@
 # CMakeLists.txt - HEAD directory CMakeLists file
 #
 # A.G.Klein / M.Overdick 9/16/15
-
 cmake_minimum_required(VERSION 2.8)
 
 # Some Boost components require being set here (improves compile time)
@@ -9,6 +8,7 @@ set(BOOST_REQUIRED_COMPONENTS
     system
     thread
 )
+
 find_package(Boost "1.46" REQUIRED ${BOOST_REQUIRED_COMPONENTS})
 find_package(UHD "3.9.0" REQUIRED)
 
@@ -19,14 +19,26 @@ include_directories(
     ../include/
 )
 
-link_directories(${Boost_LIBRARY_DIRS})
+link_directories(
+    ${Boost_LIBRARY_DIRS}
+)
 
-add_executable(masternode masternode.cpp)
+set(RESOURCES
+    ../include/sinc.cpp
+    ../include/writebuff.cpp
+    ../include/checklo.cpp
+)
 
-SET(CMAKE_BUILD_TYPE "Release")
+add_executable(masternode masternode.cpp ${RESOURCES})
 
+# SET(CMAKE_BUILD_TYPE "DEBUG")
+SET(CMAKE_BUILD_TYPE "RELEASE")
+
+# Below is for when build type is set to "RELEASE"
 SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
-#SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --vectorize --cpu Cortex-A9 -O3 -Otime")
+
+# Below is for when build type is set to "DEBUG"
+# SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -v -da -Q -g -O0")
+
 
 target_link_libraries(masternode ${UHD_LIBRARIES} ${Boost_LIBRARIES})
-

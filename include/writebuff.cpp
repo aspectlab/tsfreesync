@@ -6,7 +6,7 @@
  * arrays of different data types.
  *
  * M.Overdick
- * Last Major Revision: 7/14/2016
+ * Last Major Revision: 7/19/2016
  ******************************************************************************/
 
 #include "includes.hpp"
@@ -63,10 +63,35 @@ void writebuff_CINT16(const char* fname, CINT16 *pbuff,int size){
 }
 
 /*******************************************************************************
+ * writebuff_INT64U() - Writes a file of given name from a buffer of given size
+ * ARGUMENTS:
+ *      const char* fname   -   A string for the filename to output
+ *      CINT16 *pbuff       -   A pointer to the first element of a buffer
+ *      int size            -   The size (length) of the buffer
+ *
+ * RETURNS: (none)
+ *
+ * M.Overdick
+ * Last Major Revision: 7/19/2016
+ ******************************************************************************/
+void writebuff_INT64U(const char* fname, INT64U *pbuff,int size){
+    std::ofstream outfile;
+    outfile.open(fname, std::ofstream::binary);
+
+    if (outfile.is_open()){
+        outfile.write((const char*)pbuff, size*sizeof(INT64U));
+    }else{}
+
+    if (outfile.is_open()){
+        outfile.close();
+    }else{}
+}
+
+/*******************************************************************************
  * writebuff_CINT16() - Writes a file of given name from a buffer of given size
  * ARGUMENTS:
  *      const char* fname   -   A string for the filename to output
- *      FP32 *pbuff       -   A pointer to the first element of a buffer
+ *      FP32 *pbuff         -   A pointer to the first element of a buffer
  *      int size            -   The size (length) of the buffer
  *
  * RETURNS: (none)
