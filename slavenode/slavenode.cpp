@@ -436,9 +436,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // clkrt_ctr = clkrt_ctr + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
         //
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB, clkrt_ctr);
-        // std::cout << "MORE SHIT " << (-time_est - TXDELAY * (rate_est - 1) * SPB - 0.5) << std::endl;
+        
         Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  -time_est - TXDELAY * (rate_est - 1) * SPB - 500.5);
-        // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  0.0);
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB);
 
             // Debug Channel TX

@@ -119,9 +119,7 @@ void Sinc_Gen(CINT16 * table, INT16 ampl, INT16U spb, FP32 delay){
     INT32U  shift   = 0;                    // Starting point of undersampling
     INT32U  remain  = 0;                    // Leftover space in over sample vector
     FP32    scale   = FP32(ampl)/SCALAR;    // Scalar for pulse amplitude
-    // std::cout << "Ratio " << Sinc_Ratio << std::endl;
-    // std::cout << "Delay " << delay << std::endl;
-    // delay = std::fmod(delay+spb,spb);       // Keep delay within boundaries and positive
+
         // Make shift always positive
     while(delay >= spb/2){
         delay = std::fmod(delay-spb,spb);
@@ -130,10 +128,7 @@ void Sinc_Gen(CINT16 * table, INT16 ampl, INT16U spb, FP32 delay){
         delay = std::fmod(delay+spb,spb);
     }
 
-    // std::cout << "MDELAY " << delay << std::endl;
-    // std::cout << "MULT "   << delay*Sinc_Ratio << std::endl;
     shift = delay*Sinc_Ratio;        // Compute starting point of undersampling
-    // std::cout << "SHIFT " << shift << std::endl;
 
         // Generate first part of delayed pulse
     for(i = shift; i < spb*Sinc_Ratio; i = i + Sinc_Ratio){
