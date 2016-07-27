@@ -21,9 +21,9 @@
 #include <iostream>                         // Input/Output to terminal
 #include <csignal>                          // Signal handlers
 #include <cmath>                            // Mathematical funcitons
+#include <math.h>                           // Math
 #include <complex>                          // Complex numbers
 #include <vector>                           // Standard vector type
-
 
 /*******************************************************************************
  * UHD Includes
@@ -45,7 +45,5 @@
 #include "sinc.hpp"                         // Sinc pulse generator
 #include "writebuff.hpp"                    // Writes buffer to file
 #include "checklo.hpp"                      // Checks LO Lock status
-
-
 
 #endif /* ifndef INCLUDES_HPP */

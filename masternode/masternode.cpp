@@ -12,7 +12,7 @@
     // Compilation Parameters
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define DURATION        10           // Duration of recording (s)
+#define DURATION        10          // Duration of recording (s)
 
 #define WRITESINC       1           // Write template sinc pulses (binary)
 
@@ -24,7 +24,7 @@
 #define SAMPRATE        100e3       // Sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // Carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock rate (Hz)
-#define TXGAIN0         50.0        // TX frontend gain, Ch 0 (dB)
+#define TXGAIN0         56.5        // TX frontend gain, Ch 0 (dB)
 #define TXGAIN1         60.0        // TX frontend gain, Ch 1 (dB)
 #define RXGAIN          0.0         // RX frontend gain (dB)
 
@@ -36,13 +36,15 @@
 #define CBW             0.5         // Normalized freq offset of sinc pulse (1 --> Nyquist)
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
 
+#define SINC_PRECISION  10000       // Precision of sinc pulse delays relative to FS
+                                    // Precision in seconds = 1/(SAMPRATE*SINC_PRECISION)
+
     // Sinc pulse amplitudes (integer)
-#define SINC_PRECISION  1e-9        // Precision of pre-generated sinc pulse (in s)
 #define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       1e8         // Threshold of cross correlation pulse detection
-#define FLIP_SCALING    50          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       2e7         // Threshold of cross correlation pulse detection
+#define FLIP_SCALING    100         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
 
@@ -78,13 +80,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     std::vector< CINT16 >   xcorr_sinc(SPB);            // stores precomputed sinc pulse for cross correlation
     std::vector< CINT16 >   dbug_sinc(SPB);             // stores precomputed sinc pulse for Tx
     std::vector< CINT16 >   zero(SPB, (0,0));           // stores all zeros for Tx
-    std::vector< CINT16 >   zero2(SPB, (0,0));           // stores all zeros for Tx
     std::vector< CINT16 >   flipbuff(3*SPB);            // stores flipped received signals for Tx
     std::vector< CINT16 *>  flipbuffs(3);               // stores flipped received signals for Tx
     std::vector< CINT16 *>  txbuffs(2);                 // pointer to facilitate 2-chan transmission
     std::vector< CINT16 >   rxbuff(NUMRXBUFFS*SPB);     // (circular) receive buffer, keeps most recent 3 buffers
     std::vector< CINT16 *>  rxbuffs(NUMRXBUFFS);        // Vector of pointers to sectons of rx_buff
-
 
         // Only compiled when debugging
     #if ((DEBUG != 0) && (WRITEXCORR != 0))
@@ -92,13 +92,10 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     #else
     #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
 
-    INT16U i = 0, j = 0, k=0;
-    INT16 m = 0, n = 0;
-    INT16U count = 0, rxbuff_ctr = 0 , idx = 0;
-    CINT32 xcorr = 0;
-    STATES state = SEARCHING;
-
-
+    INT16U i = 0, j = 0;                            // Unsigned general counters
+    INT16U count = 0, rxbuff_ctr = 0 , idx = 0;     // Specific purpose counters
+    CINT32 xcorr = 0;                               // Cross correlation variable
+    STATES state = SEARCHING;                       // State memory
 
     /** Variable Initializations **********************************************/
         // Initialise rxbuffs (Vector of pointers)
@@ -110,14 +107,20 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     for(i = 0; i < 3; i++){
         flipbuffs[i] = &flipbuff.front() + SPB * i;
     }
+        // Initialize oversampled sinc pulse
+    Sinc_Init(BW, CBW, SPB, SINC_PRECISION);
 
-    Sinc_Init(BW, CBW, SPB, SINC_PRECISION, SAMPRATE);
 
+
+        // Generate sinc pulse for cross correlation
     Sinc_Gen(&xcorr_sinc.front(), XCORR_AMP, SPB, 0.0);
+
+        // Conjugate correlation sinc pulse
     for (j = 0; j < SPB; j++){
         xcorr_sinc[j] = std::conj(xcorr_sinc[j]);
     }
 
+        // Generate debug sinc pulse
     Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB, 0.0);
 
     /** Debug code for writing sinc pulse *************************************/
@@ -125,8 +128,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // Write template sinc pulse to file for debug
     #if ((DEBUG != 0) && (WRITESINC != 0))
         std::cout << "Writing Sinc to file..." << std::flush;
-        writebuff_CINT16("./xcorr_sinc.dat", &xcorr_sinc.front(), SPB);
-        writebuff_CINT16("./dbug_sinc.dat", &dbug_sinc.front(), SPB);
+        writebuff("./xcorr_sinc.dat", &xcorr_sinc.front(), SPB);
+        writebuff("./dbug_sinc.dat", &dbug_sinc.front(), SPB);
         std::cout << "done!" << std::endl;
     #else
     #endif /* #if ((DEBUG != 0) && (WRITESINC != 0)) */
@@ -320,7 +323,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             if(write_ctr >= time){
                 std::cout << std::endl;
                 std::cout << "Writing normalized correlation to file..." << std::flush;
-                writebuff_INT32U("./xcorr.dat", &normxcorr_write.front(), SPB*time);
+                writebuff("./xcorr.dat", &normxcorr_write.front(), SPB*time);
                 std::cout << "done!" << std::endl;
 
                 // Don't break if we want to record RX too
@@ -335,7 +338,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             if(write_ctr >= time){
                 std::cout << std::endl;
                 std::cout << "Writing rx buffer to file..." << std::endl;
-                writebuff_CINT16("./rx.dat", rxbuffs[0], SPB*time);
+                writebuff("./rx.dat", rxbuffs[0], SPB*time);
                 std::cout << "done!" << std::endl;
                 break;
             }else{}

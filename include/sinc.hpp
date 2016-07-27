@@ -9,7 +9,7 @@
 #define SINC_HPP
 
     // Initializes oversampled sinc pulse
-void Sinc_Init(FP32 bw, FP32 cbw, INT32U spb, FP32 precision, FP32 fs);
+void Sinc_Init(FP32 bw, FP32 cbw, INT32U spb, INT16U ratio);
 
     // Undersamples and creates delayed sinc pulse
 void Sinc_Gen(CINT16 * table, INT16 ampl, INT16U spb, FP32 delay);

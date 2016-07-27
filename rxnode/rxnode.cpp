@@ -10,8 +10,8 @@
 #include "includes.hpp"
 
     // tweakable parameters
-#define DURATION        5           // Length of time to record in seconds
-#define SAMPRATE        5e6         // sampling rate (Hz)
+#define DURATION        20          // Length of time to record in seconds
+#define SAMPRATE        3e6         // sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
 #define RXGAIN          16.0        // Rx frontend gain in dB
@@ -49,11 +49,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT32U rx_ctr = 0;                      // Counts loops through main while()
 
     /** Variable Initializations **********************************************/
-    // Initialise rxbuffs (Vector of pointers)
+        // Initialise rxbuffs (Vector of pointers)
     for(i = 0; i < time; i++){
         rxbuffs[i][0] = &ch0_rxbuff.front() + SPB * i;
         rxbuffs[i][1] = &ch1_rxbuff.front() + SPB * i;
     }
+
     /** Main code *************************************************************/
 
         // set USRP Rx params
@@ -68,8 +69,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     usrp_rx->set_rx_freq(tune_request,1);                                               // set the center frequency (Ch 1)
     usrp_rx->set_rx_gain(RXGAIN,0);                                                     // set the rf gain (Ch 0)
     usrp_rx->set_rx_gain(RXGAIN,1);                                                     // set the rf gain (Ch 1)
-    usrp_rx->set_rx_antenna(std::string("TX/RX"),0);                                      // set the antenna (Ch 0)
-    usrp_rx->set_rx_antenna(std::string("TX/RX"),1);                                      // set the antenna (Ch 1)
+    usrp_rx->set_rx_antenna(std::string("TX/RX"),0);                                    // set the antenna (Ch 0)
+    usrp_rx->set_rx_antenna(std::string("TX/RX"),1);                                    // set the antenna (Ch 1)
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));                         // allow for some setup time
 
         // check Ref and LO Lock detect for Rx
@@ -86,8 +87,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // set sigint so user can terminate via Ctrl-C
     std::signal(SIGINT, &sig_int_handler);
-    std::cout << boost::format("Recording RX CH 0 and CH 1 for %i seconds") % DURATION << std::endl;
-    std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
+    std::cout << boost::format("Recording RX CH 0 and CH 1 for %i seconds") % DURATION << std::endl << std::endl;
+    std::cout << "Press Enter to start recording..." << std::endl << std::endl;
+
+        // Wait for "ENTER" key to be pressed
+    while(std::cin.get() != '\n'){}
+
+    std::cout << "Press Ctrl + C to stop recording..." << std::endl;
 
         // setup receive streaming
     uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
@@ -97,8 +103,6 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // grab initial block of received samples from USRP with nice long timeout (gets discarded)
     num_rx_samps = rx_stream->recv(rxbuffs[0], SPB, md_rx, 3.0);
-
-    std::cout << std::endl;
 
     while(not stop_signal_called){
             // grab block of received samples from USRP
@@ -113,24 +117,27 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         }else{}
 
             // Report progress to terminal
-        std::cout << boost::format("\r\t%2i Percent Complete") % (rx_ctr*100/time) << std::flush;
+        std::cout << boost::format("\r\t%2i Percent Complete      ") % (rx_ctr*100/time) << std::flush;
 
     }   /** while(not stop_signal_called) *************************************/
 
-        // Report progress to terminal
-    std::cout << "\r\tdone!               " << std::endl << std::endl;
+    if(stop_signal_called){
+        std::cout << std::endl << "Cancelled." << std::endl;
+    }else{
+            // Report progress to terminal
+        std::cout << "\r\tdone!               " << std::endl << std::endl;
 
-        // Write buffers to file
-    std::cout << "Writing buffers to file..." << std::endl;
+            // Write buffers to file
+        std::cout << "Writing buffers to file (this may take awhile)..." << std::endl;
 
-    std::cout << "    Channel 0 (RX2-A)..." << std::flush;
-    writebuff_CINT16("./RX2-A.dat", &ch0_rxbuff.front(), time*SPB);
-    std::cout << "done!" << std::endl;
+        std::cout << "    Channel 0 (RX2-A)..." << std::flush;
+        writebuff("./RX2-A.dat", &ch0_rxbuff.front(), time*SPB);
+        std::cout << "done!" << std::endl;
 
-    std::cout << "    Channel 1 (RX2-B)..." << std::flush;
-    writebuff_CINT16("./RX2-B.dat", &ch1_rxbuff.front(), time*SPB);
-    std::cout << "done!" << std::endl;
-
+        std::cout << "    Channel 1 (RX2-B)..." << std::flush;
+        writebuff("./RX2-B.dat", &ch1_rxbuff.front(), time*SPB);
+        std::cout << "done!" << std::endl;
+    }
 
     return EXIT_SUCCESS;
 }   /** main() ****************************************************************/

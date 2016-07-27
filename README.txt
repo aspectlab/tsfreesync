@@ -3,7 +3,7 @@ Timestamp Free Synchronization
 
 Written by:
 
-A.G.Klein, M.Overdick, J.E.Canfield
+M.Overdick, J.E.Canfield, A.G.Klein
 #####################################################################
 
 This is a simple instruction file on how to build this project.
