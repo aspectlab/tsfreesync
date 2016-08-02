@@ -12,14 +12,14 @@
     // Compliation parameters
 #define DEBUG           1           // Debug (binary) if 1, debug code compiled
 
-#define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
+#define WRITESINC       0           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        30          // Length of time to record in seconds
+#define DURATION        1500        // Length of time to record in seconds
 
-#define WRITEXCORR      1           // Write cross correlation to file (binary)
+#define WRITEXCORR      0           // Write cross correlation to file (binary)
 
-#define WRITERX         1           // Write receive buffer to file (binary)
+#define WRITERX         0           // Write receive buffer to file (binary)
 
 #define WRITEKAL        1           // Write Kalman filter components to file
 
@@ -32,17 +32,18 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.99999     // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-#define KALGAIN2        0.00001     // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
+#define KALGAIN1        0.9999999   // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN2        1e-09       // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
 // #define KALGAIN1        1.0         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
 // #define KALGAIN2        0.0         // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
 #define CLKRT           0.0         // Clockrate estimate
+#define RATE_SEED       1.000000406   // Seed value for rate_est
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
 #define NRXBUFFS        3           // Number of Receive Buffers (circular)
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
-#define BW              0.1         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
+#define BW              0.4         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
 #define SYNC_PERIOD     15          // Sync Period (# of buffers, 11 is safe minimum)
 
@@ -55,7 +56,7 @@
 #define DBSINC_AMP      0x7FFF      // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        0x7FFF      // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       1e8         // Threshold of cross correlation pulse detection
+#define THRESHOLD       7e6         // Threshold of cross correlation pulse detection
 #define XCORR_SHIFT     3           // How many times to divide the cross correlation by 2 before normalizing
 
     // Structure for handling pulse detections
@@ -97,16 +98,16 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     #if ((DEBUG != 0) && (WRITEKAL != 0))
             // Kalman filter variables
-        std::vector< FP32 > clockoffset_rec(time);  // stores clockoffset
-        std::vector< FP32 > crnt_master_rec(time);  // stores crnt_master
-        std::vector< FP32 > pred_error_rec(time);   // stores pred_error
+        std::vector< FP64 > clockoffset_rec(time);  // stores clockoffset
+        std::vector< FP64 > crnt_master_rec(time);  // stores crnt_master
+        std::vector< FP64 > pred_error_rec(time);   // stores pred_error
 
-        std::vector< FP32 > time_est_rec(time);     // stores time_est
-        std::vector< FP32 > rate_est_rec(time);     // stores rate_est
-        std::vector< FP32 > time_pred_rec(time);    // stores time_pred
-        std::vector< FP32 > rate_pred_rec(time);    // stores rate_pred
+        std::vector< FP64 > time_est_rec(time);     // stores time_est
+        std::vector< FP64 > rate_est_rec(time);     // stores rate_est
+        std::vector< FP64 > time_pred_rec(time);    // stores time_pred
+        std::vector< FP64 > rate_pred_rec(time);    // stores rate_pred
 
-        std::vector< FP32 > interp_rec(time);    // stores interp
+        std::vector< FP64 > interp_rec(time);    // stores interp
     #else
     #endif /* #if ((DEBUG != 0) && (WRITEKAL != 0)) */
 
@@ -136,23 +137,30 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // Delay estimation variables
     MAXES crnt_max, prev_max, exact_max;    // Xcorr max structures
-    FP32 interp         = 0.0;              // Position of peak (in fractional samples)
-    FP32 clockoffset    = 0.0;              // Calculated offset of master to slave (in samples)
-    FP32 clkrt_ctr      = 0.0;              // Calculated clockrate (manually set)
+    FP64 interp         = 0.0;              // Position of peak (in fractional samples)
+    FP64 clockoffset    = 0.0;              // Calculated offset of master to slave (in samples)
+    FP64 clkrt_ctr      = 0.0;              // Calculated clockrate (manually set)
 
         // Kalman filter variables
-    FP32  crnt_master   = 0.0;          // Current time of master
-    FP32  time_est      = 0.0;          // Time estimate of master
-    FP32  time_pred     = 0.0;          // Time prediction of master
-    FP32  rate_est      = 1.0;          // Rate estimate of master
-    FP32  rate_pred     = 1.0;          // Rate prediction of master
-    FP32  pred_error    = 0.0;          // Prediction error
+    FP64  crnt_master   = 0.0;          // Current time of master
+    FP64  time_est      = 0.0;          // Time estimate of master
+    FP64  time_pred     = 0.0;          // Time prediction of master
+    FP64  rate_est      = 1.0;          // Rate estimate of master
+    FP64  rate_pred     = 1.0;          // Rate prediction of master
+    FP64  pred_error    = 0.0;          // Prediction error
     INT32 buff_timer    = 0;            // Timer for time between transmitting and receiving a pulse
+
+    FP32  k_gain1       = 0.9;          // Kalman gain 1
+    FP32  k_gain2       = 0.1;          // Kalman gain 2
+    INT32 k_ctr         = 0;            // Kalman counter
 
         // Counters
     INT16U ping_ctr     = 0;            // Counter for transmitting pulses
     INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
     INT16U i,j,k;                       // Generic counters
+
+        // Book keeping
+    bool first_calc     = true;         // First time running calculate code
 
     /** Variable Initializations **********************************************/
 
@@ -365,11 +373,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             interp = ((FP32)(exact_max.left) - (FP32)(exact_max.right))/ \
                      (2*((FP32)(exact_max.left) - 2*exact_max.center + (FP32)(exact_max.right)));
 
-            // actual roundtrip time is buff_time*SPB+(exact_max.center_pos-999)+interp.  Divided by 2, and modulo 1000, this becomes --
+                 // actual roundtrip time is buff_time*SPB+(exact_max.center_pos-999)+interp.  Divided by 2, and modulo 1000, this becomes --
             if(buff_timer & 1){
-                clockoffset = (exact_max.center_pos+interp+1+SPB)/2;
-            }else{
                 clockoffset = (exact_max.center_pos+interp+1)/2;
+            }else{
+                clockoffset = (exact_max.center_pos+interp+1+SPB)/2;
             }
 
                 // Display info on the terminal
@@ -391,6 +399,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Update Estimates
             time_est  = time_pred + KALGAIN1 * pred_error;
             rate_est  = rate_pred + KALGAIN2 * pred_error;
+
+                // On first calc run only, to keep rate_est from straying too far from 1
+            if(first_calc){
+                rate_est = RATE_SEED;
+                first_calc = false;
+            }else{}
 
                 // Update Predictions
             time_pred = time_est + (rate_est - 1) * SPB;
@@ -436,8 +450,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // clkrt_ctr = clkrt_ctr + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
         //
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB, clkrt_ctr);
-        
-        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  -time_est - TXDELAY * (rate_est - 1) * SPB - 500.5);
+
+        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB + SPB/2 + 0.5);
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB);
 
             // Debug Channel TX

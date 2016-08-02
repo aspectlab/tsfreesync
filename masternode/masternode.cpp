@@ -32,7 +32,7 @@
 #define SPB             1000        // Samples Per Buffer
 #define NRXBUFFS        3           // Number of receive buffers (circular)
 #define TXDELAY         3           // Buffers in the future that we schedule transmissions (must be odd)
-#define BW              0.1         // Normalized bandwidth of sinc pulse (1 --> Nyquist)
+#define BW              0.4         // Normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized freq offset of sinc pulse (1 --> Nyquist)
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
 
@@ -43,8 +43,8 @@
 #define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       2e7         // Threshold of cross correlation pulse detection
-#define FLIP_SCALING    100         // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
+#define THRESHOLD       2e6         // Threshold of cross correlation pulse detection
+#define FLIP_SCALING    50          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
 

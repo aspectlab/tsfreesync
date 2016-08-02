@@ -43,3 +43,4 @@ template <typename data_type> void writebuff(const char* fname, data_type *pbuff
 template void writebuff<CINT16>(const char* fname, CINT16 *pbuff, int size);
 template void writebuff<INT32U>(const char* fname, INT32U *pbuff, int size);
 template void writebuff<FP32>(const char* fname, FP32 *pbuff, int size);
+template void writebuff<FP64>(const char* fname, FP64 *pbuff, int size);

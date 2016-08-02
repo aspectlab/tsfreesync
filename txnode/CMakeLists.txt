@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 2.8)
 
 # Some Boost components require being set here (improves compile time)
 set(BOOST_REQUIRED_COMPONENTS
+    program_options
     system
     thread
 )
