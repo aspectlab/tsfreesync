@@ -10,7 +10,7 @@
 #include "includes.hpp"
 
     // tweakable parameters
-#define DURATION        5           // Length of time to record in seconds
+#define DURATION        30          // Length of time to record in seconds
 #define SAMPRATE        3e6         // sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // clock rate (Hz)
@@ -46,7 +46,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // Counters
     INT16U i = 0,j = 0,k = 0;               // Generic counters
-    INT32U rx_ctr = 0;                      // Counts loops through main while()
+    INT32U write_ctr = 0;                      // Counts loops through main while()
 
     /** Variable Initializations **********************************************/
         // Initialise rxbuffs (Vector of pointers)
@@ -106,38 +106,38 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
     while(not stop_signal_called){
             // grab block of received samples from USRP
-        num_rx_samps = rx_stream->recv(rxbuffs[rx_ctr], SPB, md_rx);
+        num_rx_samps = rx_stream->recv(rxbuffs[write_ctr], SPB, md_rx);
 
             // Increment counter
-        rx_ctr++;
+        write_ctr++;
 
             // Check if full time has passed
-        if(rx_ctr == time){
+        if(write_ctr == time){
             break;
         }else{}
 
             // Report progress to terminal
-        std::cout << boost::format("\r\t%2i Percent Complete      ") % (rx_ctr*100/time) << std::flush;
+        std::cout << boost::format("\r\t%2i Percent Complete      ") % (write_ctr*100/time) << std::flush;
 
     }   /** while(not stop_signal_called) *************************************/
 
-    if(stop_signal_called){
-        std::cout << std::endl << "Cancelled." << std::endl;
-    }else{
             // Report progress to terminal
         std::cout << "\r\tdone!               " << std::endl << std::endl;
 
-            // Write buffers to file
-        std::cout << "Writing buffers to file (this may take awhile)..." << std::endl;
+        if(stop_signal_called){
+            std::cout << std::endl << "Writing partial buffers to file (this may take awhile)..." << std::endl;
+        }else{
+                // Write buffers to file
+            std::cout << "Writing buffers to file (this may take awhile)..." << std::endl;
+        }
 
         std::cout << "    Channel 0 (RX2-A)..." << std::flush;
-        writebuff("./RX2-A.dat", &ch0_rxbuff.front(), time*SPB);
+        writebuff("./RX2-A.dat", &ch0_rxbuff.front(), write_ctr*SPB);
         std::cout << "done!" << std::endl;
 
         std::cout << "    Channel 1 (RX2-B)..." << std::flush;
-        writebuff("./RX2-B.dat", &ch1_rxbuff.front(), time*SPB);
+        writebuff("./RX2-B.dat", &ch1_rxbuff.front(), write_ctr*SPB);
         std::cout << "done!" << std::endl;
-    }
 
     return EXIT_SUCCESS;
 }   /** main() ****************************************************************/

@@ -4,7 +4,7 @@
  * This source file implements the "master" node in the timestamp free protocol.
  *
  * M.Overdick, A.G.Klein, and J.Canfield
- * Last Major Revision: 5/12/2016
+ * Last Major Revision: 8/5/2016
  ******************************************************************************/
 
 #include "includes.hpp"
@@ -12,7 +12,7 @@
     // Compilation Parameters
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define DURATION        10          // Duration of recording (s)
+#define DURATION        30          // Duration of recording (s)
 
 #define WRITESINC       1           // Write template sinc pulses (binary)
 
@@ -31,7 +31,7 @@
     // Transmission Parameters
 #define SPB             1000        // Samples Per Buffer
 #define NRXBUFFS        3           // Number of receive buffers (circular)
-#define TXDELAY         3           // Buffers in the future that we schedule transmissions (must be odd)
+#define TXDELAY         2           // Buffers in the future that we schedule transmissions (must be even)
 #define BW              0.4         // Normalized bandwidth of sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized freq offset of sinc pulse (1 --> Nyquist)
 #define DEBUG_PERIOD    1           // Debug Period (# of buffers)
@@ -46,7 +46,7 @@
 #define THRESHOLD       2e6         // Threshold of cross correlation pulse detection
 #define FLIP_SCALING    50          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
-typedef enum {SEARCHING, FLIP3, FLIP2, TRANSMIT} STATES;
+typedef enum {SEARCHING, FLIP2, FLIP1, FLIP0, TRANSMIT} STATES;
 
 /*******************************************************************************
 * Signal handlers
@@ -96,6 +96,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     INT16U count = 0, rxbuff_ctr = 0 , idx = 0;     // Specific purpose counters
     CINT32 xcorr = 0;                               // Cross correlation variable
     STATES state = SEARCHING;                       // State memory
+    INT16U flip_ctr = 0;                            // Counter for transmitting flipped buffers
 
     /** Variable Initializations **********************************************/
         // Initialise rxbuffs (Vector of pointers)
@@ -212,8 +213,17 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // grab block of received samples from USRP
         rx_stream->recv(rxbuffs[rxbuff_ctr], SPB, md_rx);
 
-            // 4-state machine determines what to send on antenna TX/RX-A (chan0)... send either zeros, or flipped receive buffers
-        txbuffs[0] = &zero.front();
+        if(state == FLIP0){
+                // Flip current buffer to transmit 1st
+            for (j = 0; j < SPB; j++){
+                flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
+            }
+                // Initialize flip_ctr to 0
+            flip_ctr = 0;
+
+                // Once flipped, enter TRANSMIT state to transmit buffer
+            state = TRANSMIT;
+        }else{}
 
         /** CROSS CORRELATION *************************************************/
         for (i = 0; i < SPB; i++){
@@ -233,7 +243,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 }
             }
 
-                // Compute abs^2 of xcorr divided by 4
+                // Compute abs^2 of xcorr divided by 2^3
             normxcorr[i] = std::norm(CINT32(xcorr.real() >> 3,xcorr.imag() >> 3));
 
             /** Save buffers if enabled by defines ****************************/
@@ -245,51 +255,27 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
                 // Trigger calculation block after extra buffer
             if ((normxcorr[i] >= THRESHOLD)&&(state == SEARCHING)){
-                std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl;
+                std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl << std::endl;
 
+                    // Compute which rx buffer is the previously recorded buffer
                 if(rxbuff_ctr - 1 == -1){
                     idx = NUMRXBUFFS-1;
                 }else{
                     idx = rxbuff_ctr - 1;
                 }
-
+                    // Flip prevous buffer to transmit 3rd
                 for (j = 0; j < SPB; j++) {
                     flipbuffs[2][j] = std::conj(rxbuffs[idx][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
                 }
-                state = FLIP3;
 
-            }else{}
-        }
-
-        switch (state) {
-            case FLIP3: // state 1 -- flip third segment, and transmit
+                    // Flip current buffer to transmit 2nd
                 for (j = 0; j < SPB; j++) {
-                    flipbuffs[0][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
-                }
-                txbuffs[0] = flipbuffs[0];
-                // txbuffs[0] = &xcorr_sinc.front();
-                state = FLIP2;
-                break;
-
-            case FLIP2:  // state 2 -- flip second segment, and transmit
-                for (j = 0; j < SPB; j++){
                     flipbuffs[1][j] = std::conj(rxbuffs[rxbuff_ctr][SPB-1-j]) * CINT16(FLIP_SCALING, 0);
-
                 }
-                txbuffs[0] = flipbuffs[1];
-                // txbuffs[0] = &xcorr_sinc.front();
-                state = TRANSMIT;
-            break;
 
-            case SEARCHING:
-                // DO NOTHING
-            break;
-
-            default: // state 3 -- transmit flipped first segment
-                txbuffs[0] = flipbuffs[2];
-                // txbuffs[0] = &xcorr_sinc.front();
-                state = SEARCHING;
-            break;
+                    // Change state to remember to flip next buffer
+                state = FLIP0;
+            }else{}
         }
 
             // set up transmit buffers to send sinc pulses (or zeros) on TX/RX-B (chan1)
@@ -299,6 +285,18 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         } else {
             txbuffs[1] = &zero.front();
             count++;
+        }
+
+            // When state is transmit, send flipped buffers
+        if(state == TRANSMIT){
+            txbuffs[0] = flipbuffs[flip_ctr];
+            flip_ctr++;
+                // After third buffer is queued, exit TRANSMIT state
+            if(flip_ctr >= 3){
+                state = SEARCHING;
+            }else{}
+        }else{
+            txbuffs[0] = &zero.front();
         }
 
             // transmit both buffers
@@ -312,44 +310,32 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             rxbuff_ctr = 0;
         }else{}
 
-
         #if ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0)))
-                // Report progress to terminal
-            std::cout << boost::format("\r\t Recording... %2i Percent Complete") % (write_ctr*100/time) << std::flush;
+                // Increment write_ctr and exit when done recording
+            if(write_ctr >= time){
+                break;
+            }else{
+                write_ctr++;
+            }
         #else
         #endif /* ((DEBUG != 0) && ((WRITERX != 0)||(WRITEXCORR != 0))) */
-
-        #if ((DEBUG != 0) && (WRITEXCORR != 0))
-            if(write_ctr >= time){
-                std::cout << std::endl;
-                std::cout << "Writing normalized correlation to file..." << std::flush;
-                writebuff("./xcorr.dat", &normxcorr_write.front(), SPB*time);
-                std::cout << "done!" << std::endl;
-
-                // Don't break if we want to record RX too
-                #if (WRITERX == 0)
-                break;
-                #endif /* (WRITERX != 0) */
-            }else{}
-        #else
-        #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) rxbuffs*/
-
-        #if ((DEBUG != 0) && (WRITERX != 0))
-            if(write_ctr >= time){
-                std::cout << std::endl;
-                std::cout << "Writing rx buffer to file..." << std::endl;
-                writebuff("./rx.dat", rxbuffs[0], SPB*time);
-                std::cout << "done!" << std::endl;
-                break;
-            }else{}
-        #else
-        #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
-
-        #if ((DEBUG != 0) && (WRITEXCORR != 0))
-            write_ctr++;
-        #else
-        #endif /* ((DEBUG != 0) && (WRITEXCORR != 0)) */
     }
+
+    #if ((DEBUG != 0) && (WRITEXCORR != 0))
+        std::cout << std::endl;
+        std::cout << "Writing normalized correlation to file..." << std::flush;
+        writebuff("./xcorr.dat", &normxcorr_write.front(), SPB*write_ctr);
+        std::cout << "done!" << std::endl;
+    #else
+    #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) rxbuffs*/
+
+    #if ((DEBUG != 0) && (WRITERX != 0))
+        std::cout << std::endl;
+        std::cout << "Writing rx buffer to file..." << std::endl;
+        writebuff("./rx.dat", rxbuffs[0], SPB*write_ctr);
+        std::cout << "done!" << std::endl;
+    #else
+    #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
 
         // send a mini EOB packet
     md_tx.end_of_burst = true;

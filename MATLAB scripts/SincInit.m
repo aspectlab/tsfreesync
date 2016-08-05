@@ -1,7 +1,6 @@
 function [ OS_table ] = SincInit( bw, cbw, spb, ratio)
 % OS_table = SincInit(bw,cbw,spb,ratio)
-% This script generates an oversampled Sinc pulse based on the precision
-% parameter, where precision is the sample period in seconds.
+% This script generates an oversampled Sinc pulse
 % Outputs :
 %   OS_table, the oversampled sinc pulse
 % Inputs :
@@ -12,9 +11,9 @@ function [ OS_table ] = SincInit( bw, cbw, spb, ratio)
 %   ratio, ratio samples between oversampled and downsampled pulses
 % Joseph Canfield, July 27, 2016
 
-global STU;            % Stupid constant because MATLAB doesn't like 0
+global STU;         % Stupid constant because MATLAB doesn't like 0
 STU = 1;
-global SCALAR;
+global SCALAR;      % Largest possible value for signed 16 bit integers
 SCALAR = 32767;
 
 len = spb*ratio;   % length of the oversampled pulse

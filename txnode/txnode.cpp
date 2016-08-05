@@ -48,9 +48,6 @@
 
 #define CH0_PERIOD      1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
 #define CH1_PERIOD      1           // ping tick period (in number of buffers... in actual time units, will be PING_PERIOD*SPB/SAMPRATE).
-    // Note: BW, PULSE_LENGTH, and SPB need to be chosen so that:
-    //           + PULSE_LENGTH/BW is an integer
-    //           + 2*PULSE_LENGTH/BW <= SPB
 
 /*******************************************************************************
  * Signal handlers
@@ -94,8 +91,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         #if (CLKRT_ENABLE)
             ("clkrt", po::value<FP32>(&ch1_delay)->default_value(CLKRT), "Clockrate offset")
         #endif /* #if (CLKRT != 0) */
-        ("d0", po::value<FP32>(&ch0_delay)->default_value(0.0), "Channel 1 delay")
-        ("d1", po::value<FP32>(&ch1_delay)->default_value(0.0), "Channel 2 delay")
+        ("d0", po::value<FP32>(&ch0_delay)->default_value(0.0), "Channel 0 delay")
+        ("d1", po::value<FP32>(&ch1_delay)->default_value(0.0), "Channel 1 delay")
     ;
     po::variables_map var_map;
     po::store(po::parse_command_line(argc, argv, desc), var_map);

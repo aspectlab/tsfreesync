@@ -12,11 +12,11 @@ tau = 0;        % Delay for sinc pulse generated in MATLAB
 ampl = 2048;    % Amplitude of since pulse generated in MATLAB
 threshold = 5e4;
 
-folder = './';
+fold = './';
 
 %% Open received .dat file from USRP 1
 
-filenam = [folder 'rx.dat'];
+filenam = [fold 'rx.dat'];
 fid=fopen(filenam,'r');
 rx=fread(fid,Inf,'int16');
 fclose(fid);
@@ -35,7 +35,7 @@ plot(rxt,imag(rx),'b',rxt,real(rx),'r');
 title('USRP Received Waveform');
 
 %% Open sinc.dat file from USRP 2
-filenam = [folder 'xcorr_sinc.dat'];
+filenam = [fold 'xcorr_sinc.dat'];
 fid=fopen(filenam,'r');
 sinc1=fread(fid,Inf,'int16');
 fclose(fid);
@@ -56,7 +56,7 @@ title('MATLAB Cross Correlation');
 
 %% Plot USRP's xcorr
 % fid=fopen('xcorr2.dat','r');
-filenam = [folder 'xcorr.dat'];
+filenam = [fold 'xcorr.dat'];
 fid=fopen(filenam,'r');
 usrpCorr=fread(fid,Inf,'uint32');
 fclose(fid);
