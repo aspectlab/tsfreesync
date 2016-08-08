@@ -32,7 +32,7 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.7         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
+#define KALGAIN1        0.1         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
 #define KALGAIN2        1e-09       // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
 // #define KALGAIN1        1.0         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
 // #define KALGAIN2        0.0         // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
@@ -314,11 +314,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             /** Save buffers if enabled by defines ****************************/
                 // Save normxcorr if enabled by defined variables
             #if ((DEBUG != 0) && (WRITEXCORR != 0))
-                if(i == 0){
-                    normxcorr_write[(SPB*write_ctr)] = 2e6;
-                }else{
-                    normxcorr_write[(SPB*write_ctr)+i] = normxcorr[i];
-                }
+                normxcorr_write[(SPB*write_ctr)+i] = normxcorr[i];
             #else
             #endif /* #if ((DEBUG != 0) && (WRITEXCORR != 0)) */
         }
