@@ -8,23 +8,24 @@
  ******************************************************************************/
 
 #include "includes.hpp"
+#include <numeric>
 
     // Compliation parameters
-#define DEBUG           0           // Debug (binary) if 1, debug code compiled
+#define DEBUG           1           // Debug (binary) if 1, debug code compiled
 
 #define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
                                     // is written to file "./sinc.dat"
 
-#define DURATION        1000        // Length of time to record in seconds
+#define DURATION        5000         // Length of time to record in seconds
 
-#define WRITEXCORR      1           // Write cross correlation to file (binary)
+#define WRITEXCORR      0           // Write cross correlation to file (binary)
 
-#define WRITERX         1           // Write receive buffer to file (binary)
+#define WRITERX         0           // Write receive buffer to file (binary)
 
-#define WRITEKAL        0          // Write Kalman filter components to file
+#define WRITEKAL        1           // Write Kalman filter components to file
 
     // Radio Parameters
-#define SAMPRATE        100e3       // Sampling Rate (Hz)
+#define SAMPRATE        150e3       // Sampling Rate (Hz)
 #define CARRIERFREQ     900.0e6     // Carrier Frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock Rate (Hz)
 #define TXGAIN0         50.0        // TX frontend gain, Ch 0 (dB)
@@ -32,12 +33,11 @@
 #define RXGAIN          0.0         // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.1         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-#define KALGAIN2        1e-09       // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
-// #define KALGAIN1        1.0         // Gain for master clock time estimate (set to 1.0 to prevent Kalman update)
-// #define KALGAIN2        0.0         // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update)
-#define CLKRT           0.0         // Clockrate estimate
-#define RATE_SEED       1.00000041  // Seed value for rate_est
+#define KALGAIN1        0.0036              // Gain for master clock time estimate (set to 1.0 to prevent Kalman update) (experimentally derived)
+#define KALGAIN2        1e-06               // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update) (experimentally derived)
+#define RATE_SEED       1.00000033770892    // Seed value for rate_est (experimentally derived)
+#define CLKRT           0.0                 // Clockrate estimate
+
 
     // Transmission parameters
 #define SPB             1000        // Samples Per Buffer SYNC_PERIOD
@@ -45,7 +45,7 @@
 #define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
 #define BW              0.4         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
 #define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
-#define SYNC_PERIOD     15          // Sync Period (# of buffers, 11 is safe minimum)
+#define SYNC_PERIOD     23          // Sync Period (# of buffers, 11 is safe minimum)
 
 
 #define SINC_PRECISION  10000       // Precision of sinc pulse delays relative to SAMPRATE
@@ -56,7 +56,7 @@
 #define DBSINC_AMP      0x7FFF      // Peak value of sinc pulse generated for debug channel (max 32768)
 #define SYNC_AMP        0x7FFF      // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       2e6         // Threshold of cross correlation pulse detection
+#define THRESHOLD       8e6         // Threshold of cross correlation pulse detection
 #define XCORR_SHIFT     3           // How many times to divide the cross correlation by 2 before normalizing
 
     // Structure for handling pulse detections
@@ -137,30 +137,31 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // Delay estimation variables
     MAXES crnt_max, prev_max, exact_max;    // Xcorr max structures
-    FP64 interp         = 0.0;              // Position of peak (in fractional samples)
-    FP64 clockoffset    = 0.0;              // Calculated offset of master to slave (in samples)
-    FP64 clkrt_ctr      = 0.0;              // Calculated clockrate (manually set)
+    FP64 interp           = 0.0;            // Position of peak (in fractional samples)
+    FP64 clockoffset      = 0.0;            // Calculated offset of master to slave (in samples)
+    FP64 clkrt_ctr        = 0.0;            // Calculated clockrate (manually set)
 
         // Kalman filter variables
-    FP64  crnt_master   = 0.0;          // Current time of master
-    FP64  time_est      = 0.0;          // Time estimate of master
-    FP64  time_pred     = 0.0;          // Time prediction of master
-    FP64  rate_est      = 1.0;          // Rate estimate of master
-    FP64  rate_pred     = 1.0;          // Rate prediction of master
-    FP64  pred_error    = 0.0;          // Prediction error
-    INT32 buff_timer    = 0;            // Timer for time between transmitting and receiving a pulse
+    FP64  crnt_master     = 0.0;            // Current time of master
+    FP64  time_est        = 0.0;            // Time estimate of master
+    FP64  time_pred       = 0.0;            // Time prediction of master
+    FP64  rate_est        = 1.0;            // Rate estimate of master
+    FP64  rate_pred       = 1.0;            // Rate prediction of master
+    FP64  pred_error      = 0.0;            // Prediction error
+    INT32 buff_timer      = 0;              // Timer for time between transmitting and receiving a pulse
+    INT32 bt_avg          = 0;              // Movinga average variable
+    std::vector< INT32 >  bt_vec(3);        // Moving average for buff timer
 
-    FP32  k_gain1       = 0.9;          // Kalman gain 1
-    FP32  k_gain2       = 0.1;          // Kalman gain 2
-    INT32 k_ctr         = 0;            // Kalman counter
+    FP32  k_gain1         = 0.1;            // Kalman gain 1
+    FP32  k_gain2         = KALGAIN2;            // Kalman gain 2
 
         // Counters
-    INT16U ping_ctr     = 0;            // Counter for transmitting pulses
-    INT16U rxbuff_ctr   = 0;            // Counter for circular rx buffer
-    INT16U i,j,k;                       // Generic counters
+    INT16U ping_ctr       = 0;              // Counter for transmitting pulses
+    INT16U rxbuff_ctr     = 0;              // Counter for circular rx buffer
+    INT16U i,j,k;                           // Generic counters
 
         // Book keeping
-    bool first_calc     = true;         // First time running calculate code
+    bool first_calc     = true;             // First time running calculate code
 
     /** Variable Initializations **********************************************/
 
@@ -199,29 +200,33 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
         // create a USRP Tx device
     uhd::usrp::multi_usrp::sptr usrp_tx = uhd::usrp::multi_usrp::make(std::string(""));
-    usrp_tx->set_master_clock_rate(CLOCKRATE);                                   // set clock rate
-    usrp_tx->set_clock_source(std::string("internal"));                          // lock mboard clocks
-    usrp_tx->set_tx_subdev_spec(std::string("A:A A:B"));                         // select the subdevice (2-channel mode)
-    usrp_tx->set_tx_rate(SAMPRATE);                                              // set the sample rate
-    uhd::tune_request_t tune_request(CARRIERFREQ);                               // validate tune request
-    usrp_tx->set_tx_freq(tune_request,0);                                        // set the center frequency of chan0
-    usrp_tx->set_tx_freq(tune_request,1);                                        // set the center frequency of chan1
-    usrp_tx->set_tx_gain(TXGAIN0,0);                                             // set the rf gain of chan0
-    usrp_tx->set_tx_gain(TXGAIN1,1);                                             // set the rf gain of chan1
-    usrp_tx->set_tx_antenna("TX/RX",0);                                          // set the antenna of chan0
-    usrp_tx->set_tx_antenna("TX/RX",1);                                          // set the antenna of chan1
-    boost::this_thread::sleep(boost::posix_time::seconds(1.0));                  // allow for some setup time
+    usrp_tx->set_master_clock_rate(CLOCKRATE);                                              // set clock rate
+    usrp_tx->set_clock_source(std::string("internal"));                                     // lock mboard clocks
+    // usrp_tx->set_time_source("external");                                                   // Use PPS signal
+
+    usrp_tx->set_tx_subdev_spec(std::string("A:A A:B"));                                    // select the subdevice (2-channel mode)
+    usrp_tx->set_tx_rate(SAMPRATE);                                                         // set the sample rate
+    uhd::tune_request_t tune_request(CARRIERFREQ);                                          // validate tune request
+    usrp_tx->set_tx_freq(tune_request,0);                                                   // set the center frequency of chan0
+    usrp_tx->set_tx_freq(tune_request,1);                                                   // set the center frequency of chan1
+    usrp_tx->set_tx_gain(TXGAIN0,0);                                                        // set the rf gain of chan0
+    usrp_tx->set_tx_gain(TXGAIN1,1);                                                        // set the rf gain of chan1
+    usrp_tx->set_tx_antenna("TX/RX",0);                                                     // set the antenna of chan0
+    usrp_tx->set_tx_antenna("TX/RX",1);                                                     // set the antenna of chan1
+    boost::this_thread::sleep(boost::posix_time::seconds(1.0));                             // allow for some setup time
 
         // set USRP Rx params
-    uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string(""));   // create a usrp device
-    usrp_rx->set_master_clock_rate(CLOCKRATE);                                            // set clock rate
-    usrp_rx->set_clock_source(std::string("internal"));                                   // lock mboard clocks
-    usrp_rx->set_rx_subdev_spec(std::string("A:B"));                                      // select the subdevice
-    usrp_rx->set_rx_rate(SAMPRATE,0);                                                     // set the sample rate
-    usrp_rx->set_rx_freq(tune_request,0);                                                 // set the center frequency
-    usrp_rx->set_rx_gain(RXGAIN,0);                                                       // set the rf gain
-    usrp_rx->set_rx_antenna(std::string("RX2"),0);                                        // set the antenna
-    boost::this_thread::sleep(boost::posix_time::seconds(1.0));                           // allow for some setup time
+    uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string(""));     // create a usrp device
+    usrp_rx->set_master_clock_rate(CLOCKRATE);                                              // set clock rate
+    usrp_rx->set_clock_source(std::string("internal"));                                     // lock mboard clocks
+    // usrp_rx->set_time_source("external");                                                   // Use PPS signal
+
+    usrp_rx->set_rx_subdev_spec(std::string("A:A"));                                        // select the subdevice
+    usrp_rx->set_rx_rate(SAMPRATE,0);                                                       // set the sample rate
+    usrp_rx->set_rx_freq(tune_request,0);                                                   // set the center frequency
+    usrp_rx->set_rx_gain(RXGAIN,0);                                                         // set the rf gain
+    usrp_rx->set_rx_antenna(std::string("RX2"),0);                                          // set the antenna
+    boost::this_thread::sleep(boost::posix_time::seconds(1.0));                             // allow for some setup time
 
         // check Ref and LO Lock detect for Tx
     std::vector<std::string> sensor_names;
@@ -305,7 +310,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
                 // Compute abs^2 of xcorr divided by 4
             normxcorr[i] = std::norm(CINT64(xcorr.real() >> XCORR_SHIFT,xcorr.imag() >> XCORR_SHIFT));
 
-            // Find max value of cross correlation and save its characteristics
+                // Find max value of cross correlation and save its characteristics
             if(normxcorr[i] > crnt_max.center){
                 crnt_max.center = normxcorr[i];          // Save crnt_max value
                 crnt_max.center_pos = i;                 // Save crnt_max position
@@ -322,18 +327,19 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             // Find the points before and after the maximum for the interpolator
             // Check for case when crnt_max.center_pos is on rightmost boundary
         if(crnt_max.center_pos == SPB-1){
-            crnt_max.right = 0;     // Sample after max get set later, so set to zero for now
+            crnt_max.right = 0;                                     // Sample after max get set later, so set to zero for now
         }else{
-            crnt_max.right = normxcorr[crnt_max.center_pos+1];    // Save sample after max
+            crnt_max.right = normxcorr[crnt_max.center_pos+1];      // Save sample after max
         }
 
             // Check for case when crnt_max.center_pos is on leftmost boundary
         if(crnt_max.center_pos == 0){
-            crnt_max.left = normxcorr_last;                  // normxcorr_last is now sample before max
+            crnt_max.left = normxcorr_last;                         // normxcorr_last is now sample before max
         }else{
-            crnt_max.left = normxcorr[crnt_max.center_pos-1];     // Save sample before max
+            crnt_max.left = normxcorr[crnt_max.center_pos-1];       // Save sample before max
         }
-        normxcorr_last = normxcorr[SPB-1];              // Save the last element of normxcorr
+
+        normxcorr_last = normxcorr[SPB-1];                          // Save the last element of normxcorr
 
             // If peak was on rightmost boundary in previous frame,
             // value to right of max is first element in current frame
@@ -377,38 +383,61 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
             interp = (FP64(exact_max.left) - FP64(exact_max.right)) / \
                      ( 2*(FP64(exact_max.left) - 2*(FP64(exact_max.center)) + FP64(exact_max.right)) );
 
-                 // actual roundtrip time is buff_timer*SPB+(exact_max.center_pos - 999)+interp.  Divided by 2, and modulo 1000, this becomes --
+            std::cout << "BT " << buff_timer << std::endl;
+
+                // Actual roundtrip time is buff_timer * SPB + (exact_max.center_pos - 999) + interp.
             if(buff_timer & 1){
-                clockoffset = (exact_max.center_pos+interp+1+SPB)/2;
+                clockoffset = (exact_max.center_pos+interp+SPB+1)/2;
             }else{
                 clockoffset = (exact_max.center_pos+interp+1)/2;
             }
 
-                // Kalman Filter
-            crnt_master = (clockoffset) * rate_est;
-            pred_error  = crnt_master - time_pred;
+            bt_vec.insert(bt_vec.end(),buff_timer);
+            bt_vec.erase(bt_vec.begin());
+            bt_avg = std::accumulate(bt_vec.begin(),bt_vec.end(),0)/bt_vec.size();
 
-                // Make sure pred_error is within +/- spb/2
-            while(pred_error >= (SPB/2)){
-                pred_error -= SPB;
+            std::cout << "bt_avg " << bt_avg << std::endl;
+
+                // Only update Kalman filter when buff_timer is consistent
+            if(bt_avg == buff_timer){
+                    // Kalman Filter
+                crnt_master = (clockoffset) * rate_est;
+                pred_error  = crnt_master - time_pred;
+
+                    // Make sure pred_error is within +/- spb/2
+                while(pred_error >= (SPB/2)){
+                    pred_error -= SPB;
+                }
+                while(pred_error < -(SPB/2)){
+                    pred_error += SPB;
+                }
+
+                    // Update Estimates
+                time_est  = time_pred + k_gain1 * pred_error;
+                rate_est  = rate_pred + k_gain2 * pred_error;
+
+                    // Slowly decrease kalman gain
+                if(k_gain1 > KALGAIN1){
+                    k_gain1 = k_gain1*0.999;
+                }else{}
+                k_gain2 = k_gain2*0.999;
+
+                    // On first calc run only, to keep rate_est from straying too far from 1
+                if(first_calc){
+                    rate_est = RATE_SEED;
+                    first_calc = false;
+                }else{}
+
+                    // Update Predictions
+                time_pred = time_est + (rate_est - 1) * SPB;
+                rate_pred = rate_est;
+
+            }else{
+                    // If buff_timer is unstable, use predicted values for update
+                time_est  = time_pred;
+                rate_est  = rate_pred;
+                time_pred = time_est + (rate_est - 1) * SPB;
             }
-            while(pred_error < -(SPB/2)){
-                pred_error += SPB;
-            }
-
-                // Update Estimates
-            time_est  = time_pred + KALGAIN1 * pred_error;
-            rate_est  = rate_pred + KALGAIN2 * pred_error;
-
-                // On first calc run only, to keep rate_est from straying too far from 1
-            if(first_calc){
-                rate_est = RATE_SEED;
-                first_calc = false;
-            }else{}
-
-                // Update Predictions
-            time_pred = time_est + (rate_est - 1) * SPB;
-            rate_pred = rate_est;
 
                 // Exit calculating mode
             calculate = false;
@@ -450,7 +479,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // clkrt_ctr = clkrt_ctr + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB, clkrt_ctr);
 
-        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB + SPB/2 + 0.504);
+        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB + SPB/2 + 0.481);
 
             // Debug Channel TX
         txbuffs[1] = &dbug_sinc.front();

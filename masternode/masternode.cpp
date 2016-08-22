@@ -12,7 +12,7 @@
     // Compilation Parameters
 #define DEBUG           0           // Debug (binary) if 1, debug code compiled
 
-#define DURATION        30          // Duration of recording (s)
+#define DURATION        100         // Duration of recording (s)
 
 #define WRITESINC       1           // Write template sinc pulses (binary)
 
@@ -21,7 +21,7 @@
 #define WRITEXCORR      1           // Write normalized cross correlation to file (binary)
 
     // Radio Parameters
-#define SAMPRATE        100e3       // Sampling rate (Hz)
+#define SAMPRATE        150e3       // Sampling rate (Hz)
 #define CARRIERFREQ     900.0e6     // Carrier frequency (Hz)
 #define CLOCKRATE       30.0e6      // Clock rate (Hz)
 #define TXGAIN0         56.5        // TX frontend gain, Ch 0 (dB)
@@ -43,7 +43,7 @@
 #define XCORR_AMP       64          // Peak value of sinc pulse generated for cross correlation (recommended to be 64)
 #define DBSINC_AMP      30000       // Peak value of sinc pulse generated for debug channel (max 32768)
 
-#define THRESHOLD       2e6         // Threshold of cross correlation pulse detection
+#define THRESHOLD       5e6         // Threshold of cross correlation pulse detection
 #define FLIP_SCALING    50          // scale factor used when re-sending flipped signals... depends heavily on choice of TXGAIN and RXGAIN
 
 typedef enum {SEARCHING, FLIP2, FLIP1, FLIP0, TRANSMIT} STATES;
@@ -141,6 +141,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::usrp::multi_usrp::sptr usrp_tx = uhd::usrp::multi_usrp::make(std::string(""));
     usrp_tx->set_master_clock_rate(CLOCKRATE);                                   // set clock rate
     usrp_tx->set_clock_source(std::string("internal"));                          // lock mboard clocks
+    // usrp_tx->set_time_source("external");                                        // Use PPS signal
+
     usrp_tx->set_tx_subdev_spec(std::string("A:A A:B"));                         // select the subdevice (2-channel mode)
     usrp_tx->set_tx_rate(SAMPRATE);                                              // set the sample rate
     uhd::tune_request_t tune_request(CARRIERFREQ);                               // validate tune request
@@ -153,15 +155,16 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     boost::this_thread::sleep(boost::posix_time::seconds(1.0));                  // allow for some setup time
 
         // set USRP Rx params
-    uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string(""));   // create a usrp device
-    usrp_rx->set_master_clock_rate(CLOCKRATE);                                            // set clock rate
-    usrp_rx->set_clock_source(std::string("internal"));                                   // lock mboard clocks
-    usrp_rx->set_rx_subdev_spec(std::string("A:B"));                                      // select the subdevice
-    usrp_rx->set_rx_rate(SAMPRATE,0);                                                     // set the sample rate
-    usrp_rx->set_rx_freq(tune_request,0);                                                 // set the center frequency
-    usrp_rx->set_rx_gain(RXGAIN,0);                                                       // set the rf gain
-    usrp_rx->set_rx_antenna(std::string("RX2"),0);                                        // set the antenna
-    boost::this_thread::sleep(boost::posix_time::seconds(1.0));                           // allow for some setup time
+    uhd::usrp::multi_usrp::sptr usrp_rx = uhd::usrp::multi_usrp::make(std::string(""));     // create a usrp device
+    usrp_rx->set_master_clock_rate(CLOCKRATE);                                              // set clock rate
+    usrp_rx->set_clock_source(std::string("internal"));                                     // lock mboard clocks
+    // usrp_rx->set_time_source("external");                                                   // Use PPS signal
+    usrp_rx->set_rx_subdev_spec(std::string("A:A"));                                        // select the subdevice
+    usrp_rx->set_rx_rate(SAMPRATE,0);                                                       // set the sample rate
+    usrp_rx->set_rx_freq(tune_request,0);                                                   // set the center frequency
+    usrp_rx->set_rx_gain(RXGAIN,0);                                                         // set the rf gain
+    usrp_rx->set_rx_antenna(std::string("RX2"),0);                                          // set the antenna
+    boost::this_thread::sleep(boost::posix_time::seconds(1.0));                             // allow for some setup time
 
         // check Ref and LO Lock detect for Tx
     std::vector<std::string> sensor_names;
@@ -255,6 +258,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
 
                 // Trigger calculation block after extra buffer
             if ((normxcorr[i] >= THRESHOLD)&&(state == SEARCHING)){
+                std::cout << "ps " << i << std::endl;
                 std::cout << boost::format("Pulse detected at time: %15.8f sec") % (md_rx.time_spec.get_real_secs()) << std::endl << std::endl;
 
                     // Compute which rx buffer is the previously recorded buffer

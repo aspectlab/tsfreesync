@@ -62,6 +62,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
     uhd::tune_request_t tune_request(CARRIERFREQ);                                      // validate tune request
     usrp_rx->set_master_clock_rate(CLOCKRATE);                                          // set clock rate
     usrp_rx->set_clock_source(std::string("internal"));                                 // lock mboard clocks
+    // usrp_rx->set_time_source("external");                                                   // Use external reference clock
+
     usrp_rx->set_rx_subdev_spec(std::string("A:A A:B"));                                // select the subdevice
     usrp_rx->set_rx_rate(SAMPRATE,0);                                                   // set the sample rate (Ch 0)
     usrp_rx->set_rx_rate(SAMPRATE,1);                                                   // set the sample rate (Ch 1)
