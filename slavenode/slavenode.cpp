@@ -11,60 +11,62 @@
 #include <numeric>
 
     // Compliation parameters
-#define DEBUG           1           // Debug (binary) if 1, debug code compiled
+#define DEBUG           1               // Debug (binary) if 1, debug code compiled
 
-#define WRITESINC       1           // Write Sinc (binary) if 1, debug sinc pulse
-                                    // is written to file "./sinc.dat"
+#define WRITESINC       1               // Write Sinc (binary) if 1, debug sinc pulse
+                                        // is written to file "./sinc.dat"
 
-#define DURATION        5000         // Length of time to record in seconds
+#define DURATION        2000            // Length of time to record in seconds
 
-#define WRITEXCORR      0           // Write cross correlation to file (binary)
+#define WRITEXCORR      0               // Write cross correlation to file (binary)
 
-#define WRITERX         0           // Write receive buffer to file (binary)
+#define WRITERX         0               // Write receive buffer to file (binary)
 
-#define WRITEKAL        1           // Write Kalman filter components to file
+#define WRITEKAL        1               // Write Kalman filter components to file
 
     // Radio Parameters
-#define SAMPRATE        150e3       // Sampling Rate (Hz)
-#define CARRIERFREQ     900.0e6     // Carrier Frequency (Hz)
-#define CLOCKRATE       30.0e6      // Clock Rate (Hz)
-#define TXGAIN0         50.0        // TX frontend gain, Ch 0 (dB)
-#define TXGAIN1         60.0        // TX frontend gain, Ch 1 (dB)
-#define RXGAIN          0.0         // RX Frontend Gain (dB)
+#define SAMPRATE        150e3           // Sampling Rate (Hz)
+#define CARRIERFREQ     900.0e6         // Carrier Frequency (Hz)
+#define CLOCKRATE       30.0e6          // Clock Rate (Hz)
+#define TXGAIN0         50.0            // TX frontend gain, Ch 0 (dB)
+#define TXGAIN1         60.0            // TX frontend gain, Ch 1 (dB)
+#define RXGAIN          0.0             // RX Frontend Gain (dB)
 
     // Kalman Filter Gains
-#define KALGAIN1        0.0036              // Gain for master clock time estimate (set to 1.0 to prevent Kalman update) (experimentally derived)
-#define KALGAIN2        1e-06               // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update) (experimentally derived)
-#define RATE_SEED       1.00000033770892    // Seed value for rate_est (experimentally derived)
-#define CLKRT           0.0                 // Clockrate estimate
+#define KALGAIN1        0.0036          // Gain for master clock time estimate (set to 1.0 to prevent Kalman update) (experimentally derived)
+#define KALGAIN2        1e-06           // Gain for master clock rate estimate (set to 0.0 to prevent Kalman update) (experimentally derived)
+#define RATE_SEED       1               // Seed value for rate_est (experimentally derived)
+#define CLKRT           0.0             // Clockrate estimate
 
 
     // Transmission parameters
-#define SPB             1000        // Samples Per Buffer SYNC_PERIOD
-#define NRXBUFFS        3           // Number of Receive Buffers (circular)
-#define TXDELAY         3           // Number of Buffers to Delay transmission (Must Be Odd)
-#define BW              0.4         // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
-#define CBW             0.5         // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
-#define SYNC_PERIOD     23          // Sync Period (# of buffers, 11 is safe minimum)
+#define SPB             1000            // Samples Per Buffer SYNC_PERIOD
+#define NRXBUFFS        3               // Number of Receive Buffers (circular)
+#define TXDELAY         3               // Number of Buffers to Delay transmission (Must Be Odd)
+#define BW              0.4             // Normalized Bandwidth of Sinc pulse (1 --> Nyquist)
+#define CBW             0.5             // Normalized Freq Offset of Sinc Pulse (1 --> Nyquist)
+#define SYNC_PERIOD     23              // Sync Period (# of buffers, 11 is safe minimum)
+
+#define SYNC_CAL        0.0             // Calibration of constant offset in sync
 
 
-#define SINC_PRECISION  10000       // Precision of sinc pulse delays relative to SAMPRATE
-                                    // Precision in seconds = 1/(SAMPRATE*SINC_PRECISION)
+#define SINC_PRECISION  10000           // Precision of sinc pulse delays relative to SAMPRATE
+                                        // Precision in seconds = 1/(SAMPRATE*SINC_PRECISION)
 
     // Sinc pulse amplitudes (integer)
-#define XCORR_AMP       128         // Peak value of sinc pulse generated for cross correlation
-#define DBSINC_AMP      0x7FFF      // Peak value of sinc pulse generated for debug channel (max 32768)
-#define SYNC_AMP        0x7FFF      // Peak value of sinc pulse generated for synchronization (max 32768)
+#define XCORR_AMP       128             // Peak value of sinc pulse generated for cross correlation
+#define DBSINC_AMP      0x7FFF          // Peak value of sinc pulse generated for debug channel (max 32768)
+#define SYNC_AMP        0x7FFF          // Peak value of sinc pulse generated for synchronization (max 32768)
 
-#define THRESHOLD       8e6         // Threshold of cross correlation pulse detection
-#define XCORR_SHIFT     3           // How many times to divide the cross correlation by 2 before normalizing
+#define THRESHOLD       8e6             // Threshold of cross correlation pulse detection
+#define XCORR_SHIFT     3               // How many times to divide the cross correlation by 2 before normalizing
 
     // Structure for handling pulse detections
 typedef struct {
-            INT32U center_pos;      // Position of pulse within buffer
-            INT32U center;          // Maximum value detected pulse
-            INT32U left;            // Value to left of max
-            INT32U right;           // Value to right of max
+            INT32U center_pos;          // Position of pulse within buffer
+            INT32U center;              // Maximum value detected pulse
+            INT32U left;                // Value to left of max
+            INT32U right;               // Value to right of max
         } MAXES;
 
 /*******************************************************************************
@@ -479,7 +481,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[]){
         // clkrt_ctr = clkrt_ctr + CLKRT;   // Experimentally derived offset, produces flat segments of 20 samples
         // Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB, clkrt_ctr);
 
-        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB + SPB/2 + 0.481);
+        Sinc_Gen(&dbug_sinc.front(), DBSINC_AMP, SPB,  time_est + TXDELAY * (rate_est - 1) * SPB + SPB/2 + SYNC_CAL);
 
             // Debug Channel TX
         txbuffs[1] = &dbug_sinc.front();
